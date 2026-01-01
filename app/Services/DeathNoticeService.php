@@ -164,12 +164,18 @@ class DeathNoticeService
             }
 
             $imageContent = $response->body();
-            $imagePath = Storage::disk('local')->path('temp/'.uniqid('img_').'.jpg');
 
-            // Ensure temp directory exists
-            Storage::disk('local')->makeDirectory('temp');
+            // Determine image type from URL or content
+            $imageType = 'image/jpeg';
+            if (str_contains($imageUrl, '.png')) {
+                $imageType = 'image/png';
+            } elseif (str_contains($imageUrl, '.gif')) {
+                $imageType = 'image/gif';
+            }
 
-            file_put_contents($imagePath, $imageContent);
+            // Encode image as base64
+            $base64Image = base64_encode($imageContent);
+            $dataUri = "data:{$imageType};base64,{$base64Image}";
 
             $html = "
                 <html>
@@ -180,7 +186,7 @@ class DeathNoticeService
                     </style>
                 </head>
                 <body>
-                    <img src='file://{$imagePath}' />
+                    <img src='{$dataUri}' />
                 </body>
                 </html>
             ";
@@ -189,10 +195,6 @@ class DeathNoticeService
                 ->format('A4')
                 ->margins(0, 0, 0, 0)
                 ->save($outputPath);
-
-            if (file_exists($imagePath)) {
-                unlink($imagePath);
-            }
 
             return true;
         } catch (\Exception $e) {
