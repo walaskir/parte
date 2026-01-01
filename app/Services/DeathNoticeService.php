@@ -25,7 +25,24 @@ class DeathNoticeService
      */
     public function downloadNotices(?array $sources = null): array
     {
-        $sources = $sources ?? array_keys($this->scrapers);
+        // Load active funeral services from database
+        $funeralServices = \App\Models\FuneralService::where('active', true)->get();
+
+        $availableSources = $funeralServices->mapWithKeys(function ($service) {
+            $scraperClass = match ($service->slug) {
+                'sadovy-jan' => SadovyJanScraper::class,
+                'pshajdukova' => PSHajdukovaScraper::class,
+                'psbk' => PSBKScraper::class,
+                default => null,
+            };
+
+            return $scraperClass ? [$service->slug => $scraperClass] : [];
+        })->toArray();
+
+        if ($sources === null) {
+            $sources = array_keys($availableSources);
+        }
+
         $results = [
             'total' => 0,
             'new' => 0,
@@ -33,15 +50,17 @@ class DeathNoticeService
             'errors' => 0,
         ];
 
-        foreach ($sources as $source) {
-            if (! isset($this->scrapers[$source])) {
-                Log::warning("Unknown source: {$source}");
+        foreach ($sources as $sourceKey) {
+            if (! isset($availableSources[$sourceKey])) {
+                Log::warning("Unknown source: {$sourceKey}");
 
                 continue;
             }
 
+            $scraperClass = $availableSources[$sourceKey];
+            $scraper = new $scraperClass;
+
             try {
-                $scraper = new $this->scrapers[$source];
                 $notices = $scraper->scrape();
 
                 $results['total'] += count($notices);
@@ -132,7 +151,7 @@ class DeathNoticeService
 
             // Pokud máme přímo PDF odkaz (např. Sadový Jan), stáhneme originální PDF
             if (isset($data['pdf_url'])) {
-                return $this->downloadOriginalPdf($data['pdf_url'], $fullPath) ? $fullPath : null;
+                return $this->downloadOriginalPdf($data['pdf_url'], $fullPath, $notice) ? $fullPath : null;
             }
 
             // Pokud máme obrázek (např. PS BK), převedeme jej na PDF
@@ -215,7 +234,7 @@ class DeathNoticeService
         }
     }
 
-    private function downloadOriginalPdf(string $pdfUrl, string $outputPath): bool
+    private function downloadOriginalPdf(string $pdfUrl, string $outputPath, ?DeathNotice $notice = null): bool
     {
         try {
             $response = Http::timeout(30)->get($pdfUrl);
@@ -228,11 +247,46 @@ class DeathNoticeService
 
             file_put_contents($outputPath, $response->body());
 
+            // Dispatch OCR job for PDF-based parte (Sadovy Jan, PS Hajdukova)
+            if ($notice) {
+                $this->dispatchPdfOcrJob($notice, $outputPath);
+            }
+
             return true;
         } catch (\Exception $e) {
             Log::error("Error downloading original PDF: {$e->getMessage()}");
 
             return false;
+        }
+    }
+
+    /**
+     * Dispatch OCR extraction job for PDF file
+     */
+    private function dispatchPdfOcrJob(DeathNotice $notice, string $pdfPath): void
+    {
+        try {
+            // Convert PDF first page to image for OCR
+            $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_pdf_').'.jpg');
+            $tempDir = dirname($tempImagePath);
+
+            if (! file_exists($tempDir)) {
+                mkdir($tempDir, 0755, true);
+            }
+
+            $imagick = new \Imagick;
+            $imagick->setResolution(300, 300);
+            $imagick->readImage($pdfPath.'[0]'); // First page
+            $imagick->setImageFormat('jpg');
+            $imagick->writeImage($tempImagePath);
+            $imagick->clear();
+
+            // Dispatch OCR job to queue (asynchronous with retry)
+            \App\Jobs\ExtractParteDataJob::dispatch($notice, $tempImagePath);
+
+            Log::info("Dispatched OCR extraction job for PDF-based notice {$notice->hash}");
+        } catch (\Exception $e) {
+            Log::warning("Failed to dispatch PDF OCR job: {$e->getMessage()}");
         }
     }
 

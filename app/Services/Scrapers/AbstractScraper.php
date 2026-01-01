@@ -20,7 +20,7 @@ abstract class AbstractScraper
         try {
             $response = Http::timeout(30)
                 ->withHeaders([
-                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'User-Agent' => config('services.scraper.user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
                 ])
                 ->get($url);
 
@@ -75,11 +75,10 @@ abstract class AbstractScraper
     protected function extractPdfText(string $pdfUrl): ?string
     {
         try {
-            // Add headers to avoid 403 Forbidden from servers
             $response = Http::timeout(30)
                 ->withHeaders([
-                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer' => parse_url($pdfUrl, PHP_URL_SCHEME).'://'.parse_url($pdfUrl, PHP_URL_HOST).'/',
+                    'User-Agent' => config('services.scraper.user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
+                    'Referer' => $this->url,
                 ])
                 ->get($pdfUrl);
 

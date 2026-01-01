@@ -36,19 +36,20 @@ class DownloadDeathNotices extends Command
 
         if (empty($sources) || $this->option('all')) {
             $sources = $service->getAvailableSources();
-            $this->info('Stahuji ze všech zdrojů: ' . implode(', ', $sources));
+            $this->info('Stahuji ze všech zdrojů: '.implode(', ', $sources));
         } else {
             // Validate sources
             $availableSources = $service->getAvailableSources();
             $invalidSources = array_diff($sources, $availableSources);
 
-            if (!empty($invalidSources)) {
-                $this->error('Neplatné zdroje: ' . implode(', ', $invalidSources));
-                $this->info('Dostupné zdroje: ' . implode(', ', $availableSources));
+            if (! empty($invalidSources)) {
+                $this->error('Neplatné zdroje: '.implode(', ', $invalidSources));
+                $this->info('Dostupné zdroje: '.implode(', ', $availableSources));
+
                 return Response::HTTP_UNPROCESSABLE_ENTITY;
             }
 
-            $this->info('Stahuji ze zdrojů: ' . implode(', ', $sources));
+            $this->info('Stahuji ze zdrojů: '.implode(', ', $sources));
         }
 
         // Download notices
@@ -75,6 +76,7 @@ class DownloadDeathNotices extends Command
 
         if ($results['errors'] > 0) {
             $this->error("⚠ Vyskytly se {$results['errors']} chyby");
+
             return Response::HTTP_PARTIAL_CONTENT;
         }
 

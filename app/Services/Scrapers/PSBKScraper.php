@@ -60,12 +60,12 @@ class PSBKScraper extends AbstractScraper
 
                     $noticeData = [
                         'full_name' => $fullName,
-                        'death_date' => $deathDate,
                         'funeral_date' => $funeralDate,
                         'source' => $this->source,
-                        'source_url' => $this->url,
+                        'source_url' => $imageUrl, // Direct image URL for source tracking
                         'image_url' => $imageUrl,
                         'requires_ocr' => true, // Flag for DeathNoticeService
+                        'death_date' => null, // OCR will extract this from image
                     ];
 
                     $noticeData['hash'] = $this->generateHash($noticeData);
