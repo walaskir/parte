@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 class SadovyJanScraper extends AbstractScraper
 {
     protected string $source = 'Sadový Jan';
+
     protected string $url = 'https://www.sadovyjan.cz/parte/';
 
     public function scrape(): array
@@ -15,7 +16,7 @@ class SadovyJanScraper extends AbstractScraper
         $notices = [];
         $crawler = $this->fetchContent($this->url);
 
-        if (!$crawler) {
+        if (! $crawler) {
             return $notices;
         }
 
@@ -69,11 +70,11 @@ class SadovyJanScraper extends AbstractScraper
                                 return;
                             }
 
-                            $pdfUrl = str_starts_with($href, 'http') ? $href : 'https://www.sadovyjan.cz' . $href;
+                            $pdfUrl = str_starts_with($href, 'http') ? $href : 'https://www.sadovyjan.cz'.$href;
 
                             $noticeData = [
                                 'full_name' => $nameParts['full_name'],
-                                'funeral_date' => null,
+                                'funeral_date' => $funeralDate,
                                 'source' => $this->source,
                                 'source_url' => $pdfUrl,
                                 'pdf_url' => $pdfUrl,
@@ -81,7 +82,7 @@ class SadovyJanScraper extends AbstractScraper
 
                             $noticeData['hash'] = $this->generateHash($noticeData);
 
-                            if (!$this->noticeExists($noticeData['hash'])) {
+                            if (! $this->noticeExists($noticeData['hash'])) {
                                 $notices[] = $noticeData;
                             }
                         } catch (\Exception $e) {
@@ -100,7 +101,7 @@ class SadovyJanScraper extends AbstractScraper
     }
 
     /**
-     * Parse date from Czech text
+     * Parse date from Czech text using Carbon
      */
     private function parseDate(string $dateText): ?string
     {
@@ -109,21 +110,19 @@ class SadovyJanScraper extends AbstractScraper
         }
 
         try {
-            // Try to parse Czech date format
-            $czechMonths = [
-                'ledna' => '01', 'února' => '02', 'března' => '03', 'dubna' => '04',
-                'května' => '05', 'června' => '06', 'července' => '07', 'srpna' => '08',
-                'září' => '09', 'října' => '10', 'listopadu' => '11', 'prosince' => '12',
-            ];
-
-            foreach ($czechMonths as $czech => $month) {
-                $dateText = str_ireplace($czech, $month, $dateText);
+            // Extract numeric date format: d.m.Y or dd.mm.YYYY (e.g., "31.12.2025" or "2.1.2026")
+            if (preg_match('/(\d{1,2})\.(\d{1,2})\.(\d{4})/', $dateText, $matches)) {
+                return Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
             }
 
-            // Try to parse date
+            // Try Carbon's intelligent parsing with Czech locale
+            Carbon::setLocale('cs');
             $parsed = Carbon::parse($dateText);
+
             return $parsed->format('Y-m-d');
         } catch (\Exception $e) {
+            Log::warning("Failed to parse date from text: {$dateText}");
+
             return null;
         }
     }
