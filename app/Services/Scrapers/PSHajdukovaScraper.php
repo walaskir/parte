@@ -69,8 +69,21 @@ class PSHajdukovaScraper extends AbstractScraper
 
                     $pdfUrl = str_starts_with($href, 'http') ? $href : 'https://pshajdukova.cz'.$href;
 
+                    // Extract death_date and funeral_date from PDF
+                    $deathDate = null;
+                    $pdfText = $this->extractPdfText($pdfUrl);
+                    if ($pdfText) {
+                        $dates = $this->parseDatesFromParteText($pdfText);
+                        $deathDate = $dates['death_date'];
+                        // Override funeral_date if found in PDF
+                        if ($dates['funeral_date']) {
+                            $funeralDate = $dates['funeral_date'];
+                        }
+                    }
+
                     $noticeData = [
                         'full_name' => $nameParts['full_name'],
+                        'death_date' => $deathDate,
                         'funeral_date' => $funeralDate,
                         'source' => $this->source,
                         'source_url' => $pdfUrl,

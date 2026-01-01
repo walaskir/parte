@@ -65,11 +65,13 @@ class ExtractParteDataJob implements ShouldQueue
             // Update the death notice with extracted data
             $this->deathNotice->update([
                 'full_name' => $ocrData['full_name'],
+                'death_date' => $ocrData['death_date'] ?? $this->deathNotice->death_date,
                 'funeral_date' => $ocrData['funeral_date'] ?? $this->deathNotice->funeral_date,
             ]);
 
             Log::info("Successfully extracted data for DeathNotice {$this->deathNotice->hash}", [
                 'full_name' => $ocrData['full_name'],
+                'death_date' => $ocrData['death_date'],
                 'funeral_date' => $ocrData['funeral_date'],
             ]);
             // Clean up temporary image file after successful extraction

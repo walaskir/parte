@@ -14,12 +14,14 @@ class DeathNotice extends Model implements HasMedia
         'hash',
         'full_name',
         'funeral_date',
+        'death_date',
         'source',
         'source_url',
     ];
 
     protected $casts = [
         'funeral_date' => 'date',
+        'death_date' => 'date',
     ];
 
     public function registerMediaCollections(): void

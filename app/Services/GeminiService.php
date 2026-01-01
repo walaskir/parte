@@ -86,7 +86,7 @@ class GeminiService
     }
 
     /**
-     * Parse parte text to extract name and funeral date
+     * Parse parte text to extract name, death date, and funeral date
      */
     private function parseParteText(string $text): ?array
     {
@@ -94,6 +94,7 @@ class GeminiService
         $lines = array_values(array_filter($lines)); // Odstraň prázdné řádky a reindexuj
 
         $fullName = null;
+        $deathDate = null;
         $funeralDate = null;
 
         // Hledej jméno - může být na více řádcích, velkými písmeny
@@ -143,26 +144,59 @@ class GeminiService
             $fullName = implode(' ', $nameParts);
         }
 
-        // Hledej datum pohřbu
+        // Hledej data úmrtí a pohřbu
         $fullText = implode(' ', $lines);
 
-        // Format 1: Czech/Polish numeric date (d.m.Y nebo dd.mm.YYYY)
-        if (preg_match('/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/u', $fullText, $matches)) {
+        // Look for death date patterns (Czech: "zemřel/a dne", "†", Polish: "zmarł/a dnia", "data śmierci")
+        if (preg_match('/(?:zemřel[a]?\s+(?:dne\s+)?|†\s*|zmarł[a]?\s+(?:dnia\s+)?|data\s+śmierci[:\s]+)(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/iu', $fullText, $matches)) {
             try {
                 Carbon::setLocale('cs');
-                $funeralDate = Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
+                $deathDate = Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
             } catch (\Exception $e) {
-                Log::warning('GeminiService: Failed to parse numeric date', [
+                Log::warning('GeminiService: Failed to parse death date', [
                     'date_string' => "{$matches[1]}.{$matches[2]}.{$matches[3]}",
                     'error' => $e->getMessage(),
                 ]);
             }
         }
 
-        // Format 2: Polish text date (e.g., "2 stycznia 2026")
-        if (! $funeralDate && preg_match('/(\d{1,2})\s+(stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|października|listopada|grudnia)\s+(\d{4})/iu', $fullText, $matches)) {
+        // Look for funeral date patterns (Czech: "pohřeb", "rozloučení", Polish: "pogrzeb", "pożegnanie")
+        if (preg_match('/(?:pohřeb|rozloučení|pogrzeb|pożegnanie)[^\d]*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/iu', $fullText, $matches)) {
             try {
-                // Map Polish month names to numbers
+                Carbon::setLocale('cs');
+                $funeralDate = Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
+            } catch (\Exception $e) {
+                Log::warning('GeminiService: Failed to parse funeral date', [
+                    'date_string' => "{$matches[1]}.{$matches[2]}.{$matches[3]}",
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Polish text dates for death date
+        if (! $deathDate && preg_match('/(?:zmarł[a]?\s+|data\s+śmierci[:\s]+)(\d{1,2})\s+(stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|października|listopada|grudnia)\s+(\d{4})/iu', $fullText, $matches)) {
+            try {
+                $polishMonths = [
+                    'stycznia' => 1, 'lutego' => 2, 'marca' => 3, 'kwietnia' => 4,
+                    'maja' => 5, 'czerwca' => 6, 'lipca' => 7, 'sierpnia' => 8,
+                    'września' => 9, 'października' => 10, 'listopada' => 11, 'grudnia' => 12,
+                ];
+
+                $month = $polishMonths[mb_strtolower($matches[2])] ?? null;
+                if ($month) {
+                    $deathDate = Carbon::createFromDate($matches[3], $month, $matches[1])->format('Y-m-d');
+                }
+            } catch (\Exception $e) {
+                Log::warning('GeminiService: Failed to parse Polish death date', [
+                    'date_string' => "{$matches[1]} {$matches[2]} {$matches[3]}",
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Polish text dates for funeral date
+        if (! $funeralDate && preg_match('/(?:pogrzeb|pożegnanie)[^\d]*(\d{1,2})\s+(stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|października|listopada|grudnia)\s+(\d{4})/iu', $fullText, $matches)) {
+            try {
                 $polishMonths = [
                     'stycznia' => 1, 'lutego' => 2, 'marca' => 3, 'kwietnia' => 4,
                     'maja' => 5, 'czerwca' => 6, 'lipca' => 7, 'sierpnia' => 8,
@@ -174,10 +208,32 @@ class GeminiService
                     $funeralDate = Carbon::createFromDate($matches[3], $month, $matches[1])->format('Y-m-d');
                 }
             } catch (\Exception $e) {
-                Log::warning('GeminiService: Failed to parse Polish text date', [
+                Log::warning('GeminiService: Failed to parse Polish funeral date', [
                     'date_string' => "{$matches[1]} {$matches[2]} {$matches[3]}",
                     'error' => $e->getMessage(),
                 ]);
+            }
+        }
+
+        // Fallback: if we didn't find specific patterns, extract all dates and use heuristics
+        if (! $deathDate && ! $funeralDate) {
+            preg_match_all('/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/', $fullText, $allMatches, PREG_SET_ORDER);
+
+            if (count($allMatches) >= 2) {
+                // First date is typically death date, second is funeral date
+                try {
+                    $deathDate = Carbon::createFromFormat('j.n.Y', "{$allMatches[0][1]}.{$allMatches[0][2]}.{$allMatches[0][3]}")->format('Y-m-d');
+                    $funeralDate = Carbon::createFromFormat('j.n.Y', "{$allMatches[1][1]}.{$allMatches[1][2]}.{$allMatches[1][3]}")->format('Y-m-d');
+                } catch (\Exception $e) {
+                    Log::warning('GeminiService: Failed to parse fallback dates', ['error' => $e->getMessage()]);
+                }
+            } elseif (count($allMatches) === 1) {
+                // Only one date - assume it's funeral date
+                try {
+                    $funeralDate = Carbon::createFromFormat('j.n.Y', "{$allMatches[0][1]}.{$allMatches[0][2]}.{$allMatches[0][3]}")->format('Y-m-d');
+                } catch (\Exception $e) {
+                    Log::warning('GeminiService: Failed to parse single fallback date', ['error' => $e->getMessage()]);
+                }
             }
         }
 
@@ -187,6 +243,7 @@ class GeminiService
 
         return [
             'full_name' => $fullName,
+            'death_date' => $deathDate,
             'funeral_date' => $funeralDate,
         ];
     }
@@ -211,10 +268,14 @@ class GeminiService
             $prompt = "Analyze this death notice (parte/obituary) image. Extract the following information in JSON format:
 {
   \"full_name\": \"Full name of the deceased (first name and last name together)\",
+  \"death_date\": \"Date of death in YYYY-MM-DD format (or null if not found)\",
   \"funeral_date\": \"Date of the funeral in YYYY-MM-DD format (or null if not found)\"
 }
 
-The text may be in Czech or Polish. Look for dates in formats like '2.1.2026', '31.12.2025', or written as 'pátek 2. ledna 2026'.
+The text may be in Czech or Polish. Look for:
+- Death date: after words like 'zemřel/a', '†', 'zmarł/a', 'data śmierci'
+- Funeral date: after words like 'pohřeb', 'rozloučení', 'pogrzeb', 'pożegnanie'
+Dates can be in formats like '2.1.2026', '31.12.2025', or written as 'pátek 2. ledna 2026'.
 Return ONLY the JSON object, nothing else.";
 
             $response = Http::timeout(60)

@@ -53,12 +53,14 @@ class PSBKScraper extends AbstractScraper
                     $nameParts = $this->parseName($fullName);
                     $fullName = $nameParts['full_name'];
 
-                    // PS BK doesn't provide funeral dates on the main page
-                    // OCR will extract this from the image later
+                    // PS BK doesn't provide dates on the main page
+                    // OCR will extract death_date and funeral_date from the image later
+                    $deathDate = null;
                     $funeralDate = null;
 
                     $noticeData = [
                         'full_name' => $fullName,
+                        'death_date' => $deathDate,
                         'funeral_date' => $funeralDate,
                         'source' => $this->source,
                         'source_url' => $this->url,
