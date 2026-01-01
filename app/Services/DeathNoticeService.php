@@ -173,34 +173,15 @@ class DeathNoticeService
                 $imageType = 'image/gif';
             }
 
-            // Save temporary image for OCR if notice provided
-            $tempImagePath = null;
+            // Save temporary image for OCR processing via queue
             if ($notice) {
                 $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_image_').'.jpg');
                 file_put_contents($tempImagePath, $imageContent);
 
-                // Try OCR extraction
-                try {
-                    $geminiService = new GeminiService;
-                    $ocrData = $geminiService->extractFromImage($tempImagePath);
+                // Dispatch OCR job to queue (asynchronous with retry)
+                \App\Jobs\ExtractParteDataJob::dispatch($notice, $tempImagePath);
 
-                    if ($ocrData && isset($ocrData['full_name']) && $ocrData['full_name']) {
-                        // Update notice with OCR-extracted data
-                        $notice->update([
-                            'full_name' => $ocrData['full_name'],
-                            'funeral_date' => $ocrData['funeral_date'] ?? $notice->funeral_date,
-                        ]);
-
-                        Log::info("OCR extracted data for notice {$notice->hash}: {$ocrData['full_name']}");
-                    }
-                } catch (\Exception $e) {
-                    Log::warning("OCR extraction failed for notice {$notice->hash}: {$e->getMessage()}");
-                } finally {
-                    // Clean up temp image
-                    if (file_exists($tempImagePath)) {
-                        unlink($tempImagePath);
-                    }
-                }
+                Log::info("Dispatched OCR extraction job for notice {$notice->hash}");
             }
 
             // Encode image as base64
