@@ -1,0 +1,43 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
+
+class DeathNotice extends Model implements HasMedia
+{
+    use InteractsWithMedia;
+
+    protected $fillable = [
+        'hash',
+        'first_name',
+        'last_name',
+        'funeral_date',
+        'source',
+        'source_url',
+    ];
+
+    protected $casts = [
+        'funeral_date' => 'date',
+    ];
+
+    /**
+     * Register media collections
+     */
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('pdf')
+            ->singleFile()
+            ->acceptsMimeTypes(['application/pdf']);
+    }
+
+    /**
+     * Get the full name attribute
+     */
+    public function getFullNameAttribute(): string
+    {
+        return "{$this->first_name} {$this->last_name}";
+    }
+}
