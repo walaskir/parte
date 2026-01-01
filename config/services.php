@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+    ],
+
+    'zai' => [
+        'api_key' => env('Z_AI_API_KEY'),
+    ],
+
 ];

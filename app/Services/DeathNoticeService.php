@@ -137,7 +137,7 @@ class DeathNoticeService
 
             // Pokud máme obrázek (např. PS BK), převedeme jej na PDF
             if (isset($data['image_url'])) {
-                return $this->convertImageToPdf($data['image_url'], $fullPath) ? $fullPath : null;
+                return $this->convertImageToPdf($data['image_url'], $fullPath, $notice) ? $fullPath : null;
             }
 
             // Jinak vygenerujeme PDF z HTML šablony
@@ -152,7 +152,7 @@ class DeathNoticeService
     /**
      * Convert image to PDF using Browsershot
      */
-    private function convertImageToPdf(string $imageUrl, string $outputPath): bool
+    private function convertImageToPdf(string $imageUrl, string $outputPath, ?DeathNotice $notice = null): bool
     {
         try {
             $response = Http::timeout(30)->get($imageUrl);
@@ -171,6 +171,36 @@ class DeathNoticeService
                 $imageType = 'image/png';
             } elseif (str_contains($imageUrl, '.gif')) {
                 $imageType = 'image/gif';
+            }
+
+            // Save temporary image for OCR if notice provided
+            $tempImagePath = null;
+            if ($notice) {
+                $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_image_').'.jpg');
+                file_put_contents($tempImagePath, $imageContent);
+
+                // Try OCR extraction
+                try {
+                    $geminiService = new GeminiService;
+                    $ocrData = $geminiService->extractFromImage($tempImagePath);
+
+                    if ($ocrData && isset($ocrData['full_name']) && $ocrData['full_name']) {
+                        // Update notice with OCR-extracted data
+                        $notice->update([
+                            'full_name' => $ocrData['full_name'],
+                            'funeral_date' => $ocrData['funeral_date'] ?? $notice->funeral_date,
+                        ]);
+
+                        Log::info("OCR extracted data for notice {$notice->hash}: {$ocrData['full_name']}");
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("OCR extraction failed for notice {$notice->hash}: {$e->getMessage()}");
+                } finally {
+                    // Clean up temp image
+                    if (file_exists($tempImagePath)) {
+                        unlink($tempImagePath);
+                    }
+                }
             }
 
             // Encode image as base64

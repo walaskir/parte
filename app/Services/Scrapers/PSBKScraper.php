@@ -39,10 +39,11 @@ class PSBKScraper extends AbstractScraper
                         $imageUrl = 'https://psbk.cz'.$imageUrl;
                     }
 
-                    // Try to extract name from alt or title attribute
+                    // Try to extract name from alt or title attribute first
                     $fullName = $imgNode->attr('alt') ?? $imgNode->attr('title') ?? '';
 
-                    // If we still don't have a name, generate one from the URL
+                    // If we still don't have a name, generate placeholder from URL
+                    // (OCR will extract proper name later in DeathNoticeService)
                     if (empty($fullName)) {
                         $basename = basename($imageUrl, '.png');
                         $basename = basename($basename, '.jpg');
@@ -53,6 +54,7 @@ class PSBKScraper extends AbstractScraper
                     $fullName = $nameParts['full_name'];
 
                     // PS BK doesn't provide funeral dates on the main page
+                    // OCR will extract this from the image later
                     $funeralDate = null;
 
                     $noticeData = [
@@ -61,6 +63,7 @@ class PSBKScraper extends AbstractScraper
                         'source' => $this->source,
                         'source_url' => $this->url,
                         'image_url' => $imageUrl,
+                        'requires_ocr' => true, // Flag for DeathNoticeService
                     ];
 
                     $noticeData['hash'] = $this->generateHash($noticeData);
