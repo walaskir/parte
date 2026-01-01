@@ -15,15 +15,14 @@ return new class extends Migration
         Schema::create('death_notices', function (Blueprint $table) {
             $table->id();
             $table->string('hash', 12)->unique()->index();
-            $table->string('first_name');
-            $table->string('last_name');
+            $table->string('full_name');
             $table->date('funeral_date')->nullable();
             $table->string('source');
             $table->string('source_url');
             $table->timestamp('created_at')->default(DB::raw('CURRENT_TIMESTAMP'));
             $table->timestamp('updated_at')->default(DB::raw('CURRENT_TIMESTAMP'));
 
-            $table->index(['last_name', 'first_name']);
+            $table->index('full_name');
             $table->index('funeral_date');
             $table->index('source');
         });

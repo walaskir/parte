@@ -20,51 +20,76 @@ class SadovyJanScraper extends AbstractScraper
         }
 
         try {
-            // Find all death notices on the page
-            $crawler->filter('.parte-item, .obituary-item, article')->each(function ($node) use (&$notices) {
+            // Stránka Sadový Jan má každé parte jako blok s h2 (jméno)
+            // a následným odkazem "parte : ..." vedoucím na PDF.
+            $crawler->filter('main')->each(function ($mainNode) use (&$notices) {
                 try {
-                    // Extract name - adjust selector based on actual HTML structure
-                    $nameElement = $node->filter('h2, h3, .name, .parte-name')->first();
-                    if ($nameElement->count() === 0) {
-                        return;
-                    }
+                    // Najdi všechny nadpisy h2 = jednotlivá parte
+                    $mainNode->filter('h2')->each(function ($headingNode) use (&$notices, $mainNode) {
+                        try {
+                            $fullName = trim($headingNode->text());
+                            if ($fullName === '') {
+                                return;
+                            }
 
-                    $fullName = trim($nameElement->text());
-                    $nameParts = $this->parseName($fullName);
+                            $nameParts = $this->parseName($fullName);
 
-                    // Extract funeral date - adjust selector based on actual HTML structure
-                    $dateText = '';
-                    $dateElement = $node->filter('.date, .funeral-date, time')->first();
-                    if ($dateElement->count() > 0) {
-                        $dateText = trim($dateElement->text());
-                    }
+                            // Datum pohřbu je typicky v nejbližším <p> po h2
+                            $dateText = '';
+                            $nextParagraph = $headingNode->nextAll()->filter('p')->first();
+                            if ($nextParagraph->count() > 0) {
+                                $dateText = trim($nextParagraph->text());
+                            }
 
-                    // Parse date
-                    $funeralDate = $this->parseDate($dateText);
+                            $funeralDate = $this->parseDate($dateText);
 
-                    // Extract link/URL
-                    $sourceUrl = $this->url;
-                    $linkElement = $node->filter('a')->first();
-                    if ($linkElement->count() > 0) {
-                        $href = $linkElement->attr('href');
-                        $sourceUrl = str_starts_with($href, 'http') ? $href : 'https://www.sadovyjan.cz' . $href;
-                    }
+                            // Odpovídající odkaz na PDF: text obsahuje "parte" a jméno
+                            $pdfLink = $mainNode->filter('a')->reduce(function ($node) use ($fullName) {
+                                $text = trim($node->text());
 
-                    $noticeData = [
-                        'first_name' => $nameParts['first_name'],
-                        'last_name' => $nameParts['last_name'],
-                        'funeral_date' => $funeralDate,
-                        'source' => $this->source,
-                        'source_url' => $sourceUrl,
-                    ];
+                                return str_contains(mb_strtolower($text), 'parte')
+                                    && str_contains(mb_strtolower($text), mb_strtolower($fullName));
+                            })->first();
 
-                    $noticeData['hash'] = $this->generateHash($noticeData);
+                            if ($pdfLink->count() === 0) {
+                                // Fallback: jakýkoli odkaz na .pdf v blízkosti
+                                $pdfLink = $headingNode->nextAll()->filter('a')->reduce(function ($node) {
+                                    $href = $node->attr('href') ?? '';
 
-                    if (!$this->noticeExists($noticeData['hash'])) {
-                        $notices[] = $noticeData;
-                    }
+                                    return str_ends_with(strtolower($href), '.pdf');
+                                })->first();
+                            }
+
+                            if ($pdfLink->count() === 0) {
+                                return;
+                            }
+
+                            $href = $pdfLink->attr('href');
+                            if (empty($href)) {
+                                return;
+                            }
+
+                            $pdfUrl = str_starts_with($href, 'http') ? $href : 'https://www.sadovyjan.cz' . $href;
+
+                            $noticeData = [
+                                'full_name' => $nameParts['full_name'],
+                                'funeral_date' => null,
+                                'source' => $this->source,
+                                'source_url' => $pdfUrl,
+                                'pdf_url' => $pdfUrl,
+                            ];
+
+                            $noticeData['hash'] = $this->generateHash($noticeData);
+
+                            if (!$this->noticeExists($noticeData['hash'])) {
+                                $notices[] = $noticeData;
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning("Error parsing Sadovy Jan notice: {$e->getMessage()}");
+                        }
+                    });
                 } catch (\Exception $e) {
-                    Log::warning("Error parsing notice item: {$e->getMessage()}");
+                    Log::warning("Error parsing Sadovy Jan block: {$e->getMessage()}");
                 }
             });
         } catch (\Exception $e) {

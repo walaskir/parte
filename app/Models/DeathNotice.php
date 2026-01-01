@@ -12,8 +12,7 @@ class DeathNotice extends Model implements HasMedia
 
     protected $fillable = [
         'hash',
-        'first_name',
-        'last_name',
+        'full_name',
         'funeral_date',
         'source',
         'source_url',
@@ -23,21 +22,16 @@ class DeathNotice extends Model implements HasMedia
         'funeral_date' => 'date',
     ];
 
-    /**
-     * Register media collections
-     */
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('pdf')
+            ->useDisk('parte')
             ->singleFile()
             ->acceptsMimeTypes(['application/pdf']);
     }
 
-    /**
-     * Get the full name attribute
-     */
     public function getFullNameAttribute(): string
     {
-        return "{$this->first_name} {$this->last_name}";
+        return $this->attributes['full_name'];
     }
 }

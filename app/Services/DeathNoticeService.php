@@ -34,13 +34,14 @@ class DeathNoticeService
         ];
 
         foreach ($sources as $source) {
-            if (!isset($this->scrapers[$source])) {
+            if (! isset($this->scrapers[$source])) {
                 Log::warning("Unknown source: {$source}");
+
                 continue;
             }
 
             try {
-                $scraper = new $this->scrapers[$source]();
+                $scraper = new $this->scrapers[$source];
                 $notices = $scraper->scrape();
 
                 $results['total'] += count($notices);
@@ -49,6 +50,7 @@ class DeathNoticeService
                     try {
                         if (DeathNotice::where('hash', $noticeData['hash'])->exists()) {
                             $results['duplicates']++;
+
                             continue;
                         }
 
@@ -81,33 +83,36 @@ class DeathNoticeService
     {
         try {
             return DB::transaction(function () use ($data) {
-                // Create the notice record
                 $notice = DeathNotice::create([
                     'hash' => $data['hash'],
-                    'first_name' => $data['first_name'],
-                    'last_name' => $data['last_name'],
+                    'full_name' => $data['full_name'],
                     'funeral_date' => $data['funeral_date'] ?? null,
                     'source' => $data['source'],
                     'source_url' => $data['source_url'],
                 ]);
 
-                // Generate and attach PDF
-                $pdfPath = $this->generatePdf($data);
+                $pdfPath = $this->generatePdf($data, $notice);
 
-                if ($pdfPath) {
-                    $notice->addMedia($pdfPath)
-                        ->toMediaCollection('pdf');
+                if ($pdfPath && file_exists($pdfPath)) {
+                    // Extract original filename from PDF URL if available
+                    $originalName = isset($data['pdf_url'])
+                        ? basename(parse_url($data['pdf_url'], PHP_URL_PATH))
+                        : null;
 
-                    // Clean up temporary file
-                    if (Storage::disk('local')->exists($pdfPath)) {
-                        Storage::disk('local')->delete($pdfPath);
+                    $mediaAdder = $notice->addMedia($pdfPath);
+
+                    if ($originalName) {
+                        $mediaAdder->usingFileName($originalName);
                     }
+
+                    $mediaAdder->toMediaCollection('pdf');
                 }
 
                 return $notice;
             });
         } catch (\Exception $e) {
             Log::error("Error creating notice: {$e->getMessage()}");
+
             return null;
         }
     }
@@ -115,24 +120,31 @@ class DeathNoticeService
     /**
      * Generate PDF from notice data
      */
-    private function generatePdf(array $data): ?string
+    private function generatePdf(array $data, DeathNotice $notice): ?string
     {
         try {
-            $tempPath = 'temp/' . uniqid('parte_') . '.pdf';
+            // Use temp directory for initial PDF generation
+            $tempPath = 'temp/'.uniqid('parte_').'.pdf';
             $fullPath = Storage::disk('local')->path($tempPath);
 
             // Ensure temp directory exists
             Storage::disk('local')->makeDirectory('temp');
 
-            // If this is PS BK with an image URL, download and convert to PDF
-            if (isset($data['image_url'])) {
-                return $this->convertImageToPdf($data['image_url'], $fullPath);
+            // Pokud máme přímo PDF odkaz (např. Sadový Jan), stáhneme originální PDF
+            if (isset($data['pdf_url'])) {
+                return $this->downloadOriginalPdf($data['pdf_url'], $fullPath) ? $fullPath : null;
             }
 
-            // Otherwise, generate HTML-based PDF
-            return $this->generateHtmlPdf($data, $fullPath);
+            // Pokud máme obrázek (např. PS BK), převedeme jej na PDF
+            if (isset($data['image_url'])) {
+                return $this->convertImageToPdf($data['image_url'], $fullPath) ? $fullPath : null;
+            }
+
+            // Jinak vygenerujeme PDF z HTML šablony
+            return $this->generateHtmlPdf($data, $fullPath) ? $fullPath : null;
         } catch (\Exception $e) {
             Log::error("Error generating PDF: {$e->getMessage()}");
+
             return null;
         }
     }
@@ -140,22 +152,25 @@ class DeathNoticeService
     /**
      * Convert image to PDF using Browsershot
      */
-    private function convertImageToPdf(string $imageUrl, string $outputPath): ?string
+    private function convertImageToPdf(string $imageUrl, string $outputPath): bool
     {
         try {
-            // Download the image first
             $response = Http::timeout(30)->get($imageUrl);
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("Failed to download image: {$imageUrl}");
-                return null;
+
+                return false;
             }
 
             $imageContent = $response->body();
-            $imagePath = Storage::disk('local')->path('temp/' . uniqid('img_') . '.jpg');
+            $imagePath = Storage::disk('local')->path('temp/'.uniqid('img_').'.jpg');
+
+            // Ensure temp directory exists
+            Storage::disk('local')->makeDirectory('temp');
+
             file_put_contents($imagePath, $imageContent);
 
-            // Create HTML with the image
             $html = "
                 <html>
                 <head>
@@ -175,22 +190,43 @@ class DeathNoticeService
                 ->margins(0, 0, 0, 0)
                 ->save($outputPath);
 
-            // Clean up temporary image
             if (file_exists($imagePath)) {
                 unlink($imagePath);
             }
 
-            return basename($outputPath);
+            return true;
         } catch (\Exception $e) {
             Log::error("Error converting image to PDF: {$e->getMessage()}");
-            return null;
+
+            return false;
+        }
+    }
+
+    private function downloadOriginalPdf(string $pdfUrl, string $outputPath): bool
+    {
+        try {
+            $response = Http::timeout(30)->get($pdfUrl);
+
+            if (! $response->successful()) {
+                Log::warning("Failed to download PDF: {$pdfUrl}");
+
+                return false;
+            }
+
+            file_put_contents($outputPath, $response->body());
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Error downloading original PDF: {$e->getMessage()}");
+
+            return false;
         }
     }
 
     /**
      * Generate HTML-based PDF
      */
-    private function generateHtmlPdf(array $data, string $outputPath): ?string
+    private function generateHtmlPdf(array $data, string $outputPath): bool
     {
         try {
             $html = view('pdf.death-notice', $data)->render();
@@ -200,10 +236,11 @@ class DeathNoticeService
                 ->margins(20, 20, 20, 20)
                 ->save($outputPath);
 
-            return basename($outputPath);
+            return true;
         } catch (\Exception $e) {
             Log::error("Error generating HTML PDF: {$e->getMessage()}");
-            return null;
+
+            return false;
         }
     }
 

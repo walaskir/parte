@@ -38,6 +38,15 @@ return [
             'report' => false,
         ],
 
+        // Dedikovaný disk pro ukládání PDF s parte
+        'parte' => [
+            'driver' => 'local',
+            'root' => storage_path('app/parte'),
+            'serve' => true,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
