@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 class PSHajdukovaScraper extends AbstractScraper
 {
     protected string $source = 'PS Hajdukova';
+
     protected string $url = 'https://pshajdukova.cz/smutecni-obrady-parte/';
 
     public function scrape(): array
@@ -15,56 +16,74 @@ class PSHajdukovaScraper extends AbstractScraper
         $notices = [];
         $crawler = $this->fetchContent($this->url);
 
-        if (!$crawler) {
+        if (! $crawler) {
             return $notices;
         }
 
         try {
-            // Find all death notices on the page
-            $crawler->filter('.parte-item, .obituary-item, article, .notice')->each(function ($node) use (&$notices) {
+            // Stránka PS Hajdukova má každé parte jako h3 (jméno)
+            // následované odstavcem s datem a odkazem "smuteční oznámení" na PDF
+            $crawler->filter('h3')->each(function ($headingNode) use (&$notices) {
                 try {
-                    // Extract name
-                    $nameElement = $node->filter('h2, h3, .name, .parte-name, .title')->first();
-                    if ($nameElement->count() === 0) {
+                    $fullName = trim($headingNode->text());
+                    if ($fullName === '') {
                         return;
                     }
 
-                    $fullName = trim($nameElement->text());
                     $nameParts = $this->parseName($fullName);
 
-                    // Extract funeral date
+                    // Datum pohřbu je v následujícím <p> za h3
                     $dateText = '';
-                    $dateElement = $node->filter('.date, .funeral-date, time, .obrad-date')->first();
-                    if ($dateElement->count() > 0) {
-                        $dateText = trim($dateElement->text());
+                    $nextParagraph = $headingNode->nextAll()->filter('p')->first();
+                    if ($nextParagraph->count() > 0) {
+                        $dateText = trim($nextParagraph->text());
                     }
 
-                    // Parse date
                     $funeralDate = $this->parseDate($dateText);
 
-                    // Extract link/URL
-                    $sourceUrl = $this->url;
-                    $linkElement = $node->filter('a')->first();
-                    if ($linkElement->count() > 0) {
-                        $href = $linkElement->attr('href');
-                        $sourceUrl = str_starts_with($href, 'http') ? $href : 'https://pshajdukova.cz' . $href;
+                    // Najdi odkaz s textem "smuteční oznámení" (PDF)
+                    $pdfLink = $headingNode->nextAll()->filter('a')->reduce(function ($node) {
+                        $text = trim($node->text());
+
+                        return str_contains(mb_strtolower($text), 'smuteční oznámení')
+                            || str_contains(mb_strtolower($text), 'smutecni oznameni');
+                    })->first();
+
+                    if ($pdfLink->count() === 0) {
+                        // Fallback: jakýkoli odkaz na .pdf v blízkosti
+                        $pdfLink = $headingNode->nextAll()->filter('a')->reduce(function ($node) {
+                            $href = $node->attr('href') ?? '';
+
+                            return str_ends_with(strtolower($href), '.pdf');
+                        })->first();
                     }
 
+                    if ($pdfLink->count() === 0) {
+                        return;
+                    }
+
+                    $href = $pdfLink->attr('href');
+                    if (empty($href)) {
+                        return;
+                    }
+
+                    $pdfUrl = str_starts_with($href, 'http') ? $href : 'https://pshajdukova.cz'.$href;
+
                     $noticeData = [
-                        'first_name' => $nameParts['first_name'],
-                        'last_name' => $nameParts['last_name'],
+                        'full_name' => $nameParts['full_name'],
                         'funeral_date' => $funeralDate,
                         'source' => $this->source,
-                        'source_url' => $sourceUrl,
+                        'source_url' => $pdfUrl,
+                        'pdf_url' => $pdfUrl,
                     ];
 
                     $noticeData['hash'] = $this->generateHash($noticeData);
 
-                    if (!$this->noticeExists($noticeData['hash'])) {
+                    if (! $this->noticeExists($noticeData['hash'])) {
                         $notices[] = $noticeData;
                     }
                 } catch (\Exception $e) {
-                    Log::warning("Error parsing notice item: {$e->getMessage()}");
+                    Log::warning("Error parsing PS Hajdukova notice: {$e->getMessage()}");
                 }
             });
         } catch (\Exception $e) {
@@ -75,7 +94,7 @@ class PSHajdukovaScraper extends AbstractScraper
     }
 
     /**
-     * Parse date from Czech text
+     * Parse date from Czech text using Carbon
      */
     private function parseDate(string $dateText): ?string
     {
@@ -84,19 +103,19 @@ class PSHajdukovaScraper extends AbstractScraper
         }
 
         try {
-            $czechMonths = [
-                'ledna' => '01', 'února' => '02', 'března' => '03', 'dubna' => '04',
-                'května' => '05', 'června' => '06', 'července' => '07', 'srpna' => '08',
-                'září' => '09', 'října' => '10', 'listopadu' => '11', 'prosince' => '12',
-            ];
-
-            foreach ($czechMonths as $czech => $month) {
-                $dateText = str_ireplace($czech, $month, $dateText);
+            // Extract numeric date format: d.m.Y or dd.mm.YYYY (e.g., "2. 1. 2026")
+            if (preg_match('/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/', $dateText, $matches)) {
+                return Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
             }
 
+            // Try Carbon's intelligent parsing with Czech locale
+            Carbon::setLocale('cs');
             $parsed = Carbon::parse($dateText);
+
             return $parsed->format('Y-m-d');
         } catch (\Exception $e) {
+            Log::warning("Failed to parse date from text: {$dateText}");
+
             return null;
         }
     }
