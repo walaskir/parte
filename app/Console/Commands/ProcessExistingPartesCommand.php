@@ -4,24 +4,26 @@ namespace App\Console\Commands;
 
 use App\Jobs\ExtractDeathDateJob;
 use App\Models\DeathNotice;
+use App\Services\PdfConverterService;
 use Illuminate\Console\Command;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 
 class ProcessExistingPartesCommand extends Command
 {
-    protected $signature = 'parte:process-existing 
-                            {--source= : Process only notices from specific source}
-                            {--missing-death-date : Process only notices missing death_date}';
+    protected $signature = 'parte:process-existing
+        {--missing-death-date : Only process records missing death_date}';
 
-    protected $description = 'Process existing parte notices with OCR to extract missing death_date';
+    protected $description = 'Process existing parte records to extract death date from PDFs';
+
+    public function __construct(
+        private PdfConverterService $pdfConverter
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
         $query = DeathNotice::query();
-
-        if ($source = $this->option('source')) {
-            $query->where('source', $source);
-        }
 
         if ($this->option('missing-death-date')) {
             $query->whereNull('death_date');
@@ -71,12 +73,15 @@ class ProcessExistingPartesCommand extends Command
             }
 
             try {
-                $imagick = new \Imagick;
-                $imagick->setResolution(300, 300);
-                $imagick->readImage($pdfPath.'[0]');
-                $imagick->setImageFormat('jpg');
-                $imagick->writeImage($tempImagePath);
-                $imagick->clear();
+                if (! $this->pdfConverter->convertToJpg($pdfPath, $tempImagePath, 300)) {
+                    $this->warn("Failed to convert PDF to JPG for {$notice->full_name}");
+                    if (file_exists($tempImagePath)) {
+                        unlink($tempImagePath);
+                    }
+                    $skipped++;
+
+                    continue;
+                }
 
                 // Dispatch OCR job
                 ExtractDeathDateJob::dispatch($notice, $tempImagePath);

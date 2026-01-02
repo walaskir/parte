@@ -20,6 +20,10 @@ class DeathNoticeService
         'psbk' => PSBKScraper::class,
     ];
 
+    public function __construct(
+        private PdfConverterService $pdfConverter
+    ) {}
+
     /**
      * Download notices from specified sources
      */
@@ -274,12 +278,14 @@ class DeathNoticeService
                 mkdir($tempDir, 0755, true);
             }
 
-            $imagick = new \Imagick;
-            $imagick->setResolution(300, 300);
-            $imagick->readImage($pdfPath.'[0]'); // First page
-            $imagick->setImageFormat('jpg');
-            $imagick->writeImage($tempImagePath);
-            $imagick->clear();
+            if (! $this->pdfConverter->convertToJpg($pdfPath, $tempImagePath, 300)) {
+                Log::warning('Failed to convert PDF to JPG for OCR', [
+                    'notice_hash' => $notice->hash,
+                    'pdf' => $pdfPath,
+                ]);
+
+                return;
+            }
 
             // Dispatch death_date extraction job to queue (asynchronous with retry)
             \App\Jobs\ExtractDeathDateJob::dispatch($notice, $tempImagePath);

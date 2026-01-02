@@ -44,8 +44,10 @@ return [
         'model' => env('OPENROUTER_MODEL', 'google/gemini-flash-1.5:free'),
     ],
 
-    'scraper' => [
-        'user_agent' => env('SCRAPER_USER_AGENT', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'),
+    'pdf' => [
+        'converter' => env('PDF_CONVERTER', 'auto'), // 'imagick', 'ghostscript', 'auto'
+        'ghostscript_path' => env('GHOSTSCRIPT_PATH', 'gs'),
+        'timeout' => env('PDF_CONVERSION_TIMEOUT', 60),
     ],
 
 ];

@@ -116,6 +116,12 @@ Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, 
 - PDF generuj přes **Spatie Browsershot**:
   - HTML → PDF: generuj Blade šablonou (`resources/views/pdf/death-notice.blade.php`) a pak `Browsershot::html($html)`.
   - Obrázek → PDF (např. PS BK): stáhni obrázek pomocí `Http`, vytvoř dočasný soubor v `storage/app/temp`, zabal do HTML s `<img>` a převeď na PDF.
+- **PDF → JPG konverze** pomocí **PdfConverterService**:
+  - Service používá `spatie/pdf-to-image` s automatickým fallbackem (Imagick → Ghostscript).
+  - Vždy nastav DPI 300 pro optimální OCR kvalitu: `$pdfConverter->convertToJpg($pdf, $output, 300)`.
+  - Testuj dostupnost pomocí `$pdfConverter->isAvailable()` před použitím.
+  - Ghostscript musí být nainstalován na serveru (`gs` binary).
+  - Inject `PdfConverterService` do konstruktoru services/commands, které potřebují PDF konverzi.
 - OCR extrakce dat pomocí **Tesseract + Google Gemini AI**:
   - `GeminiService::extractFromImage()` – primární metoda pro OCR extrakci.
   - Hybridní přístup: regex patterny → Gemini AI fallback při selhání.
