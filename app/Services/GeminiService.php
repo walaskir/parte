@@ -149,9 +149,43 @@ class GeminiService
         // Hledej data úmrtí a pohřbu
         $fullText = implode(' ', $lines);
 
-        // PRIORITY 1: Polish text dates for death date (with month names like "24 grudnia 2025")
+        // PRIORITY 1: Text dates with month names (Czech + Polish)
         // These have HIGHER priority than numeric dates to avoid confusion
-        
+
+        // Czech month names (Pattern: "31. PROSINEC 2025" or "31 prosince 2025")
+        if (! $deathDate && preg_match('/(\d{1,2})\.\s*(\w+)\s+(\d{4})/iu', $fullText, $matches)) {
+            $czechMonths = [
+                'ledna' => 1, 'unor' => 2, 'února' => 2, 'unora' => 2, 'březen' => 3, 'března' => 3, 'brezna' => 3,
+                'duben' => 4, 'dubna' => 4, 'kveten' => 5, 'května' => 5, 'kvetna' => 5,
+                'červen' => 6, 'června' => 6, 'cervna' => 6, 'cerven' => 6,
+                'červenec' => 7, 'července' => 7, 'cervence' => 7, 'cervenec' => 7,
+                'srpen' => 8, 'srpna' => 8, 'srpna' => 8,
+                'září' => 9, 'zari' => 9, 'říjen' => 10, 'října' => 10, 'rijna' => 10, 'rijen' => 10,
+                'listopad' => 11, 'listopadu' => 11, 'prosinec' => 12, 'prosince' => 12, 'prosince' => 12,
+            ];
+
+            $day = (int) $matches[1];
+            $monthName = mb_strtolower($matches[2], 'UTF-8');
+            $year = (int) $matches[3];
+
+            if (isset($czechMonths[$monthName])) {
+                $month = $czechMonths[$monthName];
+                try {
+                    $deathDate = Carbon::create($year, $month, $day)->format('Y-m-d');
+                    Log::info('GeminiService: Found Czech death_date', [
+                        'text_match' => $matches[0],
+                        'death_date' => $deathDate,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::warning('GeminiService: Failed to parse Czech month date', [
+                        'match' => $matches[0],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        // Polish month names
         // Pattern 1: Date BEFORE keyword - "dnia 24 grudnia 2025 ... zmarł"
         if (! $deathDate && preg_match('/(?:dnia|dnia\s+\d{1,2})\s+(\d{1,2})\s+(stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|października|listopada|grudnia)\s+(\d{4})(?:.*?zmarł[a]?)?/iu', $fullText, $matches)) {
             try {
@@ -164,7 +198,7 @@ class GeminiService
                 $month = $polishMonths[mb_strtolower($matches[2])] ?? null;
                 if ($month) {
                     $deathDate = Carbon::createFromDate($matches[3], $month, $matches[1])->format('Y-m-d');
-                    Log::info("GeminiService: Found Polish death_date (date before keyword)", ['death_date' => $deathDate]);
+                    Log::info('GeminiService: Found Polish death_date (date before keyword)', ['death_date' => $deathDate]);
                 }
             } catch (\Exception $e) {
                 Log::warning('GeminiService: Failed to parse Polish death date (date before)', [
@@ -186,7 +220,7 @@ class GeminiService
                 $month = $polishMonths[mb_strtolower($matches[2])] ?? null;
                 if ($month) {
                     $deathDate = Carbon::createFromDate($matches[3], $month, $matches[1])->format('Y-m-d');
-                    Log::info("GeminiService: Found Polish death_date (keyword before date)", ['death_date' => $deathDate]);
+                    Log::info('GeminiService: Found Polish death_date (keyword before date)', ['death_date' => $deathDate]);
                 }
             } catch (\Exception $e) {
                 Log::warning('GeminiService: Failed to parse Polish death date (keyword before)', [
@@ -199,11 +233,11 @@ class GeminiService
         // PRIORITY 2: Numeric death date patterns
         // Look for death date patterns
         // Handles:
-        // Czech: "zemřel/a dne DD.MM.YYYY", "zemřel ve čtvrtek DD.MM.YYYY"
+        // Czech: "zemřel/a dne DD.MM.YYYY", "zemřel ve čtvrtek DD.MM.YYYY", "zemřel tise ve středu DD.MM.YYYY"
         // Polish: "zmarł/a dnia DD.MM.YYYY", "zmarł w środę dnia DD.MM.YYYY"
         // Also: "† DD.MM.YYYY", "data śmierci: DD.MM.YYYY"
-        // Pattern allows optional day-of-week between keyword and "dne/dnia"
-        if (! $deathDate && preg_match('/(?:zemřel[a]?\s+(?:v[eo]?\s+\w+\s+)?(?:dne\s+)?|zmarł[a]?\s+(?:w[eo]?\s+\w+\s+)?(?:dnia\s+)?|†\s*|data\s+śmierci[:\s]+)(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/iu', $fullText, $matches)) {
+        // Pattern allows optional day-of-week and OCR typo variants (tise/tiše, zemrel/zemřel)
+        if (! $deathDate && preg_match('/(?:zem[řr]el[a]?\s+(?:tise|tiše)?\s*(?:v[eo]?\s+\w+\s+)?(?:dne\s+)?|zmarł[a]?\s+(?:w[eo]?\s+\w+\s+)?(?:dnia\s+)?|†\s*|data\s+śmierci[:\s]+)(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/iu', $fullText, $matches)) {
             try {
                 Carbon::setLocale('cs');
                 $deathDate = Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
@@ -216,24 +250,24 @@ class GeminiService
             }
         }
 
-    // Pattern: Date BEFORE keyword (e.g., "dne 29.12.2025 zemřel" or "dnia 30.12.2025 zmarł")
-    if (! $deathDate && preg_match('/(?:dne|dnia)\s+(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})(?:\s+(?:zemřel[a]?|zmarł[a]?))?/iu', $fullText, $matches)) {
-        try {
-            Carbon::setLocale('cs');
-            $deathDate = Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
-            Log::info('GeminiService: Found death_date (date before keyword)', [
-                'date' => $deathDate,
-                'matched_text' => $matches[0],
-            ]);
-        } catch (\Exception $e) {
-            Log::warning('GeminiService: Failed to parse death date (date before keyword)', [
-                'date_string' => "{$matches[1]}.{$matches[2]}.{$matches[3]}",
-                'error' => $e->getMessage(),
-            ]);
+        // Pattern: Date BEFORE keyword (e.g., "dne 29.12.2025 zemřel" or "dnia 30.12.2025 zmarł")
+        if (! $deathDate && preg_match('/(?:dne|dnia)\s+(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})(?:\s+(?:zemřel[a]?|zmarł[a]?))?/iu', $fullText, $matches)) {
+            try {
+                Carbon::setLocale('cs');
+                $deathDate = Carbon::createFromFormat('j.n.Y', "{$matches[1]}.{$matches[2]}.{$matches[3]}")->format('Y-m-d');
+                Log::info('GeminiService: Found death_date (date before keyword)', [
+                    'date' => $deathDate,
+                    'matched_text' => $matches[0],
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('GeminiService: Failed to parse death date (date before keyword)', [
+                    'date_string' => "{$matches[1]}.{$matches[2]}.{$matches[3]}",
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
-    }
 
-    // Look for funeral date patterns (Czech: "pohřeb", "rozloučení", Polish: "pogrzeb", "pożegnanie")
+        // Look for funeral date patterns (Czech: "pohřeb", "rozloučení", Polish: "pogrzeb", "pożegnanie")
         if (preg_match('/(?:pohřeb|rozloučení|pogrzeb|pożegnanie)[^\d]*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/iu', $fullText, $matches)) {
             try {
                 Carbon::setLocale('cs');
@@ -300,14 +334,14 @@ class GeminiService
         }
 
         // If regex failed and we have image path, try Gemini AI fallback
-        if (!$regexSuccess && $imagePath && file_exists($imagePath)) {
+        if (! $regexSuccess && $imagePath && file_exists($imagePath)) {
             Log::info('GeminiService: Regex extraction failed, trying Gemini AI fallback', [
                 'extract_mode' => $extractDeathDate ? 'death_date' : 'name+funeral_date',
                 'image_path' => $imagePath,
             ]);
 
             $geminiResult = $this->extractFromImageWithGemini($imagePath);
-            
+
             if ($geminiResult) {
                 // Merge Gemini results with regex results (Gemini takes priority)
                 if ($extractDeathDate) {
@@ -331,7 +365,7 @@ class GeminiService
             }
         }
 
-        if (! $fullName && !$extractDeathDate) {
+        if (! $fullName && ! $extractDeathDate) {
             Log::warning('GeminiService: Could not extract name from OCR text (regex and Gemini failed)', ['text' => substr($fullText, 0, 500)]);
         }
 
