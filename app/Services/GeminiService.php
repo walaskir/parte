@@ -153,18 +153,15 @@ class GeminiService
         $fullText = implode(' ', $lines);
 
         // Extract announcement text (regex first, AI fallback if needed)
-        // Extract announcement text using AI first (Gemini → Anthropic), regex emergency fallback
+        // Extract announcement text using AI ONLY (Gemini → Anthropic)
+        // NO Tesseract OCR or regex - AI Vision reads directly from image
         $announcementText = null;
 
         if ($imagePath && file_exists($imagePath)) {
-            Log::info('GeminiService: Extracting announcement_text using AI (Gemini → Anthropic)');
+            Log::info('GeminiService: Extracting announcement_text using AI Vision (Gemini → Anthropic)');
             $announcementText = $this->extractAnnouncementTextWithAI($imagePath);
-        }
-
-        // If both AI providers failed, use regex as emergency fallback
-        if (! $announcementText && ! empty($fullText)) {
-            Log::warning('GeminiService: Both AI providers failed, falling back to regex extraction');
-            $announcementText = $this->extractAnnouncementText($fullText);
+        } else {
+            Log::warning('GeminiService: No image path available for announcement_text extraction');
         }
 
         // PRIORITY 1: Text dates with month names (Czech + Polish)
