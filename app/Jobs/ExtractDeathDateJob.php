@@ -10,7 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
-class ExtractParteDataJob implements ShouldQueue
+class ExtractDeathDateJob implements ShouldQueue
 {
     use InteractsWithQueue, Queueable, SerializesModels;
 
@@ -25,6 +25,11 @@ class ExtractParteDataJob implements ShouldQueue
     public int $timeout = 180;
 
     /**
+     * Seconds to wait before retrying the job.
+     */
+    public int $backoff = 60;
+
+    /**
      * Create a new job instance.
      */
     public function __construct(
@@ -33,54 +38,51 @@ class ExtractParteDataJob implements ShouldQueue
     ) {}
 
     /**
-     * Execute the job - extract data from parte image using OCR.
+     * Execute the job - extract death_date from parte image using OCR.
      */
     public function handle(GeminiService $geminiService): void
     {
-        Log::info("Starting OCR extraction for DeathNotice {$this->deathNotice->hash}", [
+        Log::info("Starting death_date extraction for DeathNotice {$this->deathNotice->hash}", [
             'id' => $this->deathNotice->id,
             'hash' => $this->deathNotice->hash,
+            'source' => $this->deathNotice->source,
             'attempt' => $this->attempts(),
         ]);
 
         try {
             if (! file_exists($this->imagePath)) {
-                Log::error("Image file not found for OCR extraction: {$this->imagePath}");
+                Log::error("Image file not found for death_date extraction: {$this->imagePath}");
                 throw new \Exception("Image file not found: {$this->imagePath}");
             }
 
-            // Extract data using OCR
-            $ocrData = $geminiService->extractFromImage($this->imagePath);
+            // Extract ONLY death_date
+            $ocrData = $geminiService->extractFromImage($this->imagePath, extractDeathDate: true);
 
-            if (! $ocrData || ! isset($ocrData['full_name']) || ! $ocrData['full_name']) {
-                Log::warning("OCR extraction returned no valid data for DeathNotice {$this->deathNotice->hash}", [
-                    'ocr_data' => $ocrData,
-                    'attempt' => $this->attempts(),
-                ]);
-
-                // Throw exception to trigger retry
-                throw new \Exception('OCR extraction returned no valid data');
+            // Update only death_date (keep existing full_name and funeral_date)
+            $updateData = [];
+            if (isset($ocrData['death_date']) && $ocrData['death_date']) {
+                $updateData['death_date'] = $ocrData['death_date'];
             }
 
-            // Update the death notice with extracted data
-            $this->deathNotice->update([
-                'full_name' => $ocrData['full_name'],
-                'death_date' => $ocrData['death_date'] ?? $this->deathNotice->death_date,
-                'funeral_date' => $ocrData['funeral_date'] ?? $this->deathNotice->funeral_date,
-            ]);
+            if (! empty($updateData)) {
+                $this->deathNotice->update($updateData);
 
-            Log::info("Successfully extracted data for DeathNotice {$this->deathNotice->hash}", [
-                'full_name' => $ocrData['full_name'],
-                'death_date' => $ocrData['death_date'],
-                'funeral_date' => $ocrData['funeral_date'],
-            ]);
+                Log::info("Successfully extracted death_date for DeathNotice {$this->deathNotice->hash}", [
+                    'death_date' => $ocrData['death_date'] ?? null,
+                ]);
+            } else {
+                Log::warning("No death_date found in OCR data for DeathNotice {$this->deathNotice->hash}", [
+                    'attempt' => $this->attempts(),
+                ]);
+            }
+
             // Clean up temporary image file after successful extraction
             if (file_exists($this->imagePath)) {
                 unlink($this->imagePath);
-                Log::debug("Cleaned up temporary image after successful extraction: {$this->imagePath}");
+                Log::debug("Cleaned up temporary image after death_date extraction: {$this->imagePath}");
             }
         } catch (\Exception $e) {
-            Log::error("OCR extraction failed for DeathNotice {$this->deathNotice->hash}", [
+            Log::error("Death_date extraction failed for DeathNotice {$this->deathNotice->hash}", [
                 'error' => $e->getMessage(),
                 'attempt' => $this->attempts(),
                 'max_tries' => $this->tries,
@@ -104,7 +106,7 @@ class ExtractParteDataJob implements ShouldQueue
      */
     public function failed(\Throwable $exception): void
     {
-        Log::error("ExtractParteDataJob permanently failed for DeathNotice {$this->deathNotice->hash}", [
+        Log::error("ExtractDeathDateJob permanently failed for DeathNotice {$this->deathNotice->hash}", [
             'error' => $exception->getMessage(),
             'trace' => $exception->getTraceAsString(),
         ]);

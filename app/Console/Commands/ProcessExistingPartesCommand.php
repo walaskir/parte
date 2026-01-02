@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\ExtractParteDataJob;
+use App\Jobs\ExtractDeathDateJob;
 use App\Models\DeathNotice;
 use Illuminate\Console\Command;
 use Symfony\Component\Console\Command\Command as CommandAlias;
@@ -79,7 +79,7 @@ class ProcessExistingPartesCommand extends Command
                 $imagick->clear();
 
                 // Dispatch OCR job
-                ExtractParteDataJob::dispatch($notice, $tempImagePath);
+                ExtractDeathDateJob::dispatch($notice, $tempImagePath);
                 $processed++;
             } catch (\Exception $e) {
                 $this->error("Failed to process notice {$notice->hash}: {$e->getMessage()}");

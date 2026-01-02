@@ -197,10 +197,10 @@ class DeathNoticeService
                 $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_image_').'.jpg');
                 file_put_contents($tempImagePath, $imageContent);
 
-                // Dispatch OCR job to queue (asynchronous with retry)
-                \App\Jobs\ExtractParteDataJob::dispatch($notice, $tempImagePath);
+                // Dispatch ExtractImageParteJob for PS BK (name + funeral_date)
+                \App\Jobs\ExtractImageParteJob::dispatch($notice, $tempImagePath);
 
-                Log::info("Dispatched OCR extraction job for notice {$notice->hash}");
+                Log::info("Dispatched ExtractImageParteJob for PS BK notice {$notice->hash}");
             }
 
             // Encode image as base64
@@ -247,7 +247,7 @@ class DeathNoticeService
 
             file_put_contents($outputPath, $response->body());
 
-            // Dispatch OCR job for PDF-based parte (Sadovy Jan, PS Hajdukova)
+            // Dispatch death_date extraction job for PDF-based parte (Sadovy Jan, PS Hajdukova)
             if ($notice) {
                 $this->dispatchPdfOcrJob($notice, $outputPath);
             }
@@ -281,10 +281,10 @@ class DeathNoticeService
             $imagick->writeImage($tempImagePath);
             $imagick->clear();
 
-            // Dispatch OCR job to queue (asynchronous with retry)
-            \App\Jobs\ExtractParteDataJob::dispatch($notice, $tempImagePath);
+            // Dispatch death_date extraction job to queue (asynchronous with retry)
+            \App\Jobs\ExtractDeathDateJob::dispatch($notice, $tempImagePath);
 
-            Log::info("Dispatched OCR extraction job for PDF-based notice {$notice->hash}");
+            Log::info("Dispatched death_date extraction job for PDF-based notice {$notice->hash}");
         } catch (\Exception $e) {
             Log::warning("Failed to dispatch PDF OCR job: {$e->getMessage()}");
         }
