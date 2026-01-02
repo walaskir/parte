@@ -9,33 +9,23 @@ Goal: Safe, consistent, and predictable changes to the death notice scraping and
 
 ### Setup
 ```bash
-composer install              # Install PHP dependencies
-npm install                   # Install JS/CSS dependencies (if needed)
-php artisan key:generate      # Generate app key (one-time)
-php artisan migrate           # Run migrations
+composer install && npm install
+php artisan key:generate && php artisan migrate
 ```
 
 ### Testing (Pest)
 ```bash
-./vendor/bin/pest                                           # Run all tests
-./vendor/bin/pest tests/Feature/GeminiServiceTest.php      # Single file
-./vendor/bin/pest --filter="specific test name"            # Single test (RECOMMENDED after changes)
-php artisan test                                            # Alternative (use Pest directly instead)
+./vendor/bin/pest                                      # Run all tests
+./vendor/bin/pest tests/Feature/GeminiServiceTest.php # Single file
+./vendor/bin/pest --filter="specific test name"       # Single test (RECOMMENDED)
 ```
 **ALWAYS run relevant tests before finalizing changes.**
 
 ### Linting / Formatting
 ```bash
 ./vendor/bin/pint --dirty     # Format changed files (run before commit)
-./vendor/bin/pint             # Format all files
 ```
 **ALWAYS run Pint before finalizing changes.**
-
-### Assets (Vite)
-```bash
-npm run dev                   # Development server / watch
-npm run build                 # Production build
-```
 
 ---
 
@@ -44,13 +34,12 @@ npm run build                 # Production build
 **Framework:** Laravel 12.x, PHP 8.4+, Pest testing, Laravel Horizon (Redis queue)
 
 **Core Domain Files:**
-- `app/Models/DeathNotice.php` - Death notice model
-- `app/Models/FuneralService.php` - Funeral service sources
-- `app/Services/DeathNoticeService.php` - Orchestrates scraping, storage, PDF
+- `app/Models/DeathNotice.php` - Death notice model with announcement_text field
+- `app/Services/DeathNoticeService.php` - Orchestrates scraping, storage, PDF generation
+- `app/Services/GeminiService.php` - AI extraction (Gemini Vision → Anthropic Vision → regex fallback)
 - `app/Services/Scrapers/*Scraper.php` - Individual scrapers (PSBKScraper, PSHajdukovaScraper, SadovyJanScraper)
-- `app/Services/GeminiService.php` - OCR + AI extraction (Tesseract → Gemini → Anthropic fallback)
-- `app/Jobs/ExtractImageParteJob.php` - Extract name + funeral date from images
-- `app/Jobs/ExtractDeathDateJob.php` - Extract death date
+- `app/Jobs/ExtractImageParteJob.php` - Extract name + funeral date + announcement_text from images
+- `app/Jobs/ExtractDeathDateJob.php` - Extract death date + announcement_text
 - `app/Console/Commands/DownloadDeathNotices.php` - `php artisan parte:download`
 - `app/Console/Commands/ProcessExistingPartesCommand.php` - `php artisan parte:process-existing`
 
@@ -66,8 +55,7 @@ npm run build                 # Production build
 
 ### Formatting
 - 4 spaces indentation (no tabs)
-- Opening brace on same line
-- Max ~120 chars per line
+- Opening brace on same line, max ~120 chars per line
 - Use short array syntax `[]`
 - Type hints everywhere: parameters, return types, properties
 
@@ -77,14 +65,6 @@ npm run build                 # Production build
 - Booleans: `is...`, `has...`, `should...`
 - Use semantic names, not generic (`$foo`, `$bar`)
 
-### Example
-```php
-public function downloadNotices(?array $sources = null): array
-{
-    // ...
-}
-```
-
 ---
 
 ## 4. Domain-Specific Rules
@@ -92,33 +72,28 @@ public function downloadNotices(?array $sources = null): array
 ### Death Notice Hash
 - **Field:** `full_name` (single field, not split into first/last)
 - **Hash:** First 12 chars of `sha256(full_name + funeral_date + source_url)`
-- **DB:** `string('hash', 12)->unique()->index()`
 - Always check hash existence before insert to prevent duplicates
+
+### Announcement Text Extraction
+- **Flow:** AI-first approach (Gemini Vision → Anthropic Vision → regex fallback)
+- **Content:** Complete announcement INCLUDING funeral details (date, time, location)
+- **Validation:** Warn if < 50 chars or literal "null" string
+- **Storage:** Text field, whitespace collapsed to single spaces
 
 ### Date Parsing (Carbon)
 ```php
 Carbon::setLocale('cs');  // Czech locale for month names
 try {
-    return Carbon::createFromFormat('j.n.Y', $dateText)->format('Y-m-d');  // Handles "2.1.2026" and "21. 12. 2025"
+    return Carbon::createFromFormat('j.n.Y', $dateText)->format('Y-m-d');
 } catch (\Exception $e) {
     Log::warning("Failed to parse date: {$dateText}", ['error' => $e->getMessage()]);
     return null;
 }
 ```
 
-**Regex Priority (in `GeminiService::parseParteText()`):**
-1. Polish month names: "dnia 26 grudnia 2025 zmarła"
-2. Numeric dates with keywords: "zemřel dne 25.12.2025"
-3. Fallback: extract all dates, use heuristics
-
 ---
 
 ## 5. Media & External Services
-
-### PDF Handling
-- **Media Library:** Spatie Media Library with custom `HashPathGenerator`
-- **Storage:** `storage/app/parte/{hash}/`
-- **PDF Generation:** Spatie Browsershot (`Browsershot::html($html)->pdf()`)
 
 ### PDF → JPG Conversion (Imagick)
 ```php
@@ -132,10 +107,11 @@ $imagick->clear();                         // Always cleanup
 $imagick->destroy();
 ```
 
-### OCR & AI Extraction
-- **Flow:** Tesseract OCR → Gemini AI → Anthropic Claude (fallback)
+### AI Extraction (CRITICAL)
+- **Flow:** Gemini Vision API → Anthropic Vision API → Tesseract OCR regex (emergency fallback)
 - **APIs:** `config('services.gemini.api_key')`, `config('services.anthropic.api_key')`
-- **Limits:** Gemini free tier 1500 req/day
+- **Limits:** Gemini free tier 1500 req/day - monitor quota, Anthropic is primary fallback
+- **Prompt:** Extracts complete announcement WITH funeral details, fixes OCR errors
 - Always delete temp files after successful processing
 
 ### Queue Jobs (Horizon/Redis)
@@ -147,7 +123,7 @@ $imagick->destroy();
 
 ## 6. Error Handling
 
-- Wrap risky operations in `try/catch` (HTTP, Browsershot, DB transactions)
+- Wrap risky operations in `try/catch` (HTTP, Browsershot, DB transactions, AI API calls)
 - Log errors: `Log::error()` or `Log::warning()` with context
 - Never use empty `catch` blocks
 - Return meaningful exit codes from artisan commands
@@ -165,7 +141,7 @@ test('death notice can be created with valid data', function () {
 ```
 
 ### Best Practices
-- Use `Http::fake()` for scrapers (no real HTTP requests)
+- Use `Http::fake()` for scrapers and AI API calls (no real HTTP requests)
 - Use `RefreshDatabase` trait for clean DB state
 - Test happy paths, failure paths, edge cases
 - Run tests after every change: `./vendor/bin/pest --filter="test name"`
@@ -177,7 +153,7 @@ test('death notice can be created with valid data', function () {
 - **Commits:** Only create when user explicitly requests
 - **Hooks:** Never use `--no-verify` without permission
 - **Force Push:** Never to main/master without explicit approval
-- **Commit Messages:** NEVER mention AI assistance ("generated by Claude", etc.)
+- **Commit Messages:** NEVER mention AI assistance ("generated by Claude", "AI-assisted", etc.)
 
 ---
 
@@ -194,15 +170,6 @@ test('death notice can be created with valid data', function () {
 - Use `config('app.name')`, NOT `env('APP_NAME')` (except in config files)
 - Form Requests for validation, not inline in controllers
 - Named routes: `route('name')` over hardcoded URLs
-
----
-
-## 10. General Rules for Agents
-
-- **Scope:** Change only what's needed for the task - no blanket refactors
-- **Consistency:** Match existing code style and conventions
-- **Communication:** Explain non-trivial changes in summary
-- **Uncertainty:** Ask clarifying questions rather than guessing
 
 ---
 

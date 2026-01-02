@@ -17,6 +17,7 @@ class DeathNotice extends Model implements HasMedia
         'death_date',
         'source',
         'source_url',
+        'announcement_text',
     ];
 
     protected $casts = [

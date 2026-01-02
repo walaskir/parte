@@ -11,16 +11,29 @@ use Symfony\Component\Console\Command\Command as CommandAlias;
 class ProcessExistingPartesCommand extends Command
 {
     protected $signature = 'parte:process-existing
-        {--missing-death-date : Only process records missing death_date}';
+        {--missing-death-date : Only process records missing death_date}
+        {--missing-announcement-text : Only process records missing announcement_text}';
 
-    protected $description = 'Process existing parte records to extract death date from PDFs';
+    protected $description = 'Process existing parte records to extract death date and announcement text from PDFs';
 
     public function handle(): int
     {
         $query = DeathNotice::query();
 
-        if ($this->option('missing-death-date')) {
-            $query->whereNull('death_date');
+        if ($this->option('missing-death-date') || $this->option('missing-announcement-text')) {
+            $query->where(function ($q) {
+                if ($this->option('missing-death-date')) {
+                    $q->orWhereNull('death_date');
+                }
+                if ($this->option('missing-announcement-text')) {
+                    $q->orWhereNull('announcement_text');
+                }
+            });
+        } else {
+            // No options = process records missing either death_date OR announcement_text
+            $query->where(function ($q) {
+                $q->whereNull('death_date')->orWhereNull('announcement_text');
+            });
         }
 
         $notices = $query->get();

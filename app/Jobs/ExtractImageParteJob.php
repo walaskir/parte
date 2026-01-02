@@ -67,15 +67,17 @@ class ExtractImageParteJob implements ShouldQueue
                 throw new \Exception('Image extraction returned no valid name');
             }
 
-            // Update only full_name and funeral_date
+            // Update full_name, funeral_date, and announcement_text
             $this->deathNotice->update([
                 'full_name' => $ocrData['full_name'],
                 'funeral_date' => $ocrData['funeral_date'] ?? $this->deathNotice->funeral_date,
+                'announcement_text' => $ocrData['announcement_text'] ?? null,
             ]);
 
-            Log::info("Successfully extracted name and funeral_date for DeathNotice {$this->deathNotice->hash}", [
+            Log::info("Successfully extracted name, funeral_date, and announcement_text for DeathNotice {$this->deathNotice->hash}", [
                 'full_name' => $ocrData['full_name'],
                 'funeral_date' => $ocrData['funeral_date'],
+                'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
             ]);
 
             // Dispatch death_date extraction job (step 2)

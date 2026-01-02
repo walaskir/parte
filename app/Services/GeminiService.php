@@ -152,6 +152,21 @@ class GeminiService
         // Hledej data úmrtí a pohřbu
         $fullText = implode(' ', $lines);
 
+        // Extract announcement text (regex first, AI fallback if needed)
+        // Extract announcement text using AI first (Gemini → Anthropic), regex emergency fallback
+        $announcementText = null;
+
+        if ($imagePath && file_exists($imagePath)) {
+            Log::info('GeminiService: Extracting announcement_text using AI (Gemini → Anthropic)');
+            $announcementText = $this->extractAnnouncementTextWithAI($imagePath);
+        }
+
+        // If both AI providers failed, use regex as emergency fallback
+        if (! $announcementText && ! empty($fullText)) {
+            Log::warning('GeminiService: Both AI providers failed, falling back to regex extraction');
+            $announcementText = $this->extractAnnouncementText($fullText);
+        }
+
         // PRIORITY 1: Text dates with month names (Czech + Polish)
         // These have HIGHER priority than numeric dates to avoid confusion
 
@@ -380,7 +395,269 @@ class GeminiService
             'full_name' => $fullName,
             'death_date' => $deathDate,
             'funeral_date' => $funeralDate,
+            'announcement_text' => $announcementText ?? null,
         ];
+    }
+
+    /**
+     * Extract relevant announcement text from full OCR text
+     * Removes biblical verses and keeps only the obituary announcement
+     */
+    private function extractAnnouncementText(string $fullText): ?string
+    {
+        // Czech start patterns
+        $czechStarts = [
+            'S\s+bolest[ií]\s+v\s+srd[cs]i',
+            'V\s+hlubokém\s+zármutku\s+oznamujeme',
+            'S\s+hlubokým\s+zármutkem',
+            'S\s+[zž]ármutkem\s+oznamujeme',
+        ];
+
+        // Polish start patterns
+        $polishStarts = [
+            'Pogrą[żz]eni\s+w\s+g[łl]ębokim\s+[żz]alu',
+            'Z\s+g[łl]ębokim\s+[żz]alem\s+zawiadamiamy',
+            'Z\s+[żz]alem\s+zawiadamiamy',
+        ];
+
+        // Czech end patterns
+        $czechEnds = [
+            'Zarmoucená\s+rodina',
+            'Truchlící\s+rodina',
+            'Pozůstalí',
+            'Smutící\s+rodina',
+        ];
+
+        // Polish end patterns
+        $polishEnds = [
+            'Pogrą[żz]ona\s+w\s+smutku\s+rodzina',
+            'Pogrą[żz]eni\s+w\s+[żz]alu\s+bliscy',
+            'Rodzina',
+            'Pogrą[żz]eni\s+bliscy',
+        ];
+
+        $allStarts = array_merge($czechStarts, $polishStarts);
+        $allEnds = array_merge($czechEnds, $polishEnds);
+
+        $startPattern = '/('.implode('|', $allStarts).')/iu';
+        $endPattern = '/('.implode('|', $allEnds).')/iu';
+
+        $startPos = null;
+        $endPos = null;
+
+        // Find start position
+        if (preg_match($startPattern, $fullText, $matches, PREG_OFFSET_CAPTURE)) {
+            $startPos = $matches[0][1];
+        }
+
+        // Find end position (search after start position if found)
+        if (preg_match($endPattern, $fullText, $matches, PREG_OFFSET_CAPTURE, $startPos ?? 0)) {
+            $endPos = $matches[0][1] + strlen($matches[0][0]);
+        }
+
+        // Extract substring based on findings
+        if ($startPos !== null && $endPos !== null) {
+            $extracted = substr($fullText, $startPos, $endPos - $startPos);
+        } elseif ($startPos !== null) {
+            // Found start but not end - take from start to end of text
+            $extracted = substr($fullText, $startPos);
+        } else {
+            // Regex failed - return null to trigger AI fallback
+            return null;
+        }
+
+        // Clean up whitespace: collapse multiple spaces/newlines into single space
+        $cleaned = preg_replace('/\s+/', ' ', trim($extracted));
+
+        return $cleaned ?: null;
+    }
+
+    /**
+     * Extract announcement text using AI (Gemini → Anthropic fallback)
+     */
+    private function extractAnnouncementTextWithAI(string $imagePath): ?string
+    {
+        try {
+            // Read and encode image
+            $imageData = file_get_contents($imagePath);
+            $base64Image = base64_encode($imageData);
+            $mimeType = $this->getMimeType($imagePath);
+
+            $prompt = "Extract the complete obituary announcement text from this death notice (parte). 
+
+INCLUDE everything from the announcement:
+- Opening phrases like 'S bolestí v srdci oznamujeme...', 'V hlubokém zármutku...', 'Pogrążeni w głębokim żalu...'
+- Full name of the deceased
+- Date of death and age
+- Relationships (syn, vnuk, bratr, manžel, etc.)
+- Address/residence information (bytem...)
+- Funeral service details: date, time, location, venue ('Pohřeb... se koná...')
+- Closing phrases like 'Zarmoucená rodina', 'Pogrążona w smutku rodzina'
+
+DO NOT include:
+- Biblical verses or psalms that appear BEFORE the announcement
+- Religious quotes or poetry BEFORE the main announcement text
+- Decorative elements, borders, or images
+
+Extract the COMPLETE announcement as continuous text. Fix any OCR errors you notice (like 'nds' → 'nás', 'draft)' → 'drahý', remove garbage characters like 'R ża ©'). Return only the extracted and corrected text, nothing else. If no announcement is found, return 'null'.";
+
+            // Try Gemini first
+            $response = Http::timeout(60)
+                ->post("{$this->baseUrl}/models/{$this->model}:generateContent?key={$this->apiKey}", [
+                    'contents' => [
+                        [
+                            'parts' => [
+                                ['text' => $prompt],
+                                [
+                                    'inline_data' => [
+                                        'mime_type' => $mimeType,
+                                        'data' => $base64Image,
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'generationConfig' => [
+                        'temperature' => 0.3,
+                        'maxOutputTokens' => 2048,
+                    ],
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
+
+                if ($text && $text !== 'null') {
+                    // Clean up whitespace
+                    $cleaned = preg_replace('/\s+/', ' ', trim($text));
+
+                    // Basic validation
+                    if (strlen($cleaned) < 50) {
+                        Log::warning('GeminiService: AI returned suspiciously short announcement_text', [
+                            'length' => strlen($cleaned),
+                            'text' => $cleaned,
+                        ]);
+                    }
+
+                    if ($cleaned === 'null') {
+                        Log::warning('GeminiService: AI returned literal "null" string');
+
+                        return null;
+                    }
+
+                    Log::info('GeminiService: Successfully extracted announcement_text via Gemini AI', [
+                        'length' => strlen($cleaned),
+                    ]);
+
+                    return $cleaned;
+                }
+            }
+
+            // Gemini failed, try Anthropic fallback
+            if ($this->anthropicApiKey) {
+                Log::info('GeminiService: Gemini announcement extraction failed, trying Anthropic');
+
+                return $this->extractAnnouncementTextWithAnthropic($imagePath, $prompt);
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('AI announcement text extraction failed', [
+                'error' => $e->getMessage(),
+                'image_path' => $imagePath,
+            ]);
+
+            // Try Anthropic fallback on exception
+            if ($this->anthropicApiKey) {
+                Log::info('GeminiService: Exception in Gemini, trying Anthropic');
+
+                return $this->extractAnnouncementTextWithAnthropic($imagePath, $prompt);
+            }
+
+            return null;
+        }
+    }
+
+    /**
+     * Extract announcement text using Anthropic Claude
+     */
+    private function extractAnnouncementTextWithAnthropic(string $imagePath, string $prompt): ?string
+    {
+        try {
+            $imageData = file_get_contents($imagePath);
+            $base64Image = base64_encode($imageData);
+            $mimeType = $this->getMimeType($imagePath);
+
+            $config = config('services.anthropic');
+
+            $response = Http::timeout(60)
+                ->withHeaders([
+                    'x-api-key' => $this->anthropicApiKey,
+                    'anthropic-version' => $config['version'],
+                    'content-type' => 'application/json',
+                ])
+                ->post('https://api.anthropic.com/v1/messages', [
+                    'model' => $config['model'],
+                    'max_tokens' => 2048,
+                    'messages' => [
+                        [
+                            'role' => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'image',
+                                    'source' => [
+                                        'type' => 'base64',
+                                        'media_type' => $mimeType,
+                                        'data' => $base64Image,
+                                    ],
+                                ],
+                                [
+                                    'type' => 'text',
+                                    'text' => $prompt,
+                                ],
+                            ],
+                        ],
+                    ],
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $text = $data['content'][0]['text'] ?? null;
+
+                if ($text && $text !== 'null') {
+                    $cleaned = preg_replace('/\s+/', ' ', trim($text));
+
+                    // Basic validation
+                    if (strlen($cleaned) < 50) {
+                        Log::warning('GeminiService: Anthropic returned suspiciously short announcement_text', [
+                            'length' => strlen($cleaned),
+                            'text' => $cleaned,
+                        ]);
+                    }
+
+                    if ($cleaned === 'null') {
+                        Log::warning('GeminiService: Anthropic returned literal "null" string');
+
+                        return null;
+                    }
+
+                    Log::info('GeminiService: Successfully extracted announcement_text via Anthropic', [
+                        'length' => strlen($cleaned),
+                    ]);
+
+                    return $cleaned;
+                }
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Anthropic announcement text extraction failed', [
+                'error' => $e->getMessage(),
+                'image_path' => $imagePath,
+            ]);
+
+            return null;
+        }
     }
 
     /**

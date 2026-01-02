@@ -58,17 +58,21 @@ class ExtractDeathDateJob implements ShouldQueue
             // Extract ONLY death_date
             $ocrData = $geminiService->extractFromImage($this->imagePath, extractDeathDate: true);
 
-            // Update only death_date (keep existing full_name and funeral_date)
+            // Update death_date and announcement_text (keep existing full_name and funeral_date)
             $updateData = [];
             if (isset($ocrData['death_date']) && $ocrData['death_date']) {
                 $updateData['death_date'] = $ocrData['death_date'];
+            }
+            if (isset($ocrData['announcement_text']) && $ocrData['announcement_text']) {
+                $updateData['announcement_text'] = $ocrData['announcement_text'];
             }
 
             if (! empty($updateData)) {
                 $this->deathNotice->update($updateData);
 
-                Log::info("Successfully extracted death_date for DeathNotice {$this->deathNotice->hash}", [
+                Log::info("Successfully extracted death_date and announcement_text for DeathNotice {$this->deathNotice->hash}", [
                     'death_date' => $ocrData['death_date'] ?? null,
+                    'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
                 ]);
             } else {
                 Log::warning("No death_date found in OCR data for DeathNotice {$this->deathNotice->hash}", [
