@@ -22,7 +22,7 @@
             <div class="bg-red-600 px-16 py-8 rounded-lg shadow-lg mb-6">
             <h1 class="text-white text-6xl font-bold tracking-wide">WWW.BYSTRICE.ORG</h1>
             <p class="text-white text-xl mt-4 text-center max-w-3xl">
-                Aktuální parte a úmrtní oznámení z regionu Třinecko a Jablunkovsko.
+                Aktuální parte a úmrtní oznámení z regionu Třinecko a Jablunkovsko.<br>
                 Archiv parte z pohřebních služeb.
             </p>
             <p class="text-white text-lg mt-6 text-center font-semibold">
