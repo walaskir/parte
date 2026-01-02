@@ -28,6 +28,12 @@ class HorizonServiceProvider extends HorizonApplicationServiceProvider
     protected function gate(): void
     {
         Gate::define('viewHorizon', function ($user = null) {
+            // Allow access from specific IP address
+            if (request()->ip() === '81.200.54.122') {
+                return true;
+            }
+
+            // Allow authenticated users with specific emails
             return in_array(optional($user)->email, [
                 //
             ]);
