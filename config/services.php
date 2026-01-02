@@ -42,7 +42,7 @@ return [
     'anthropic' => [
         'api_key' => env('ANTHROPIC_API_KEY'),
         'model' => env('ANTHROPIC_MODEL', 'claude-3-haiku-20240307'),
-        'max_tokens' => env('ANTHROPIC_MAX_TOKENS', 1024),
+        'max_tokens' => (int) env('ANTHROPIC_MAX_TOKENS', 1024),
         'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
     ],
 
