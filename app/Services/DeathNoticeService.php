@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Imagick;
 use Spatie\Browsershot\Browsershot;
 
 class DeathNoticeService
@@ -19,10 +20,6 @@ class DeathNoticeService
         'pshajdukova' => PSHajdukovaScraper::class,
         'psbk' => PSBKScraper::class,
     ];
-
-    public function __construct(
-        private PdfConverterService $pdfConverter
-    ) {}
 
     /**
      * Download notices from specified sources
@@ -270,7 +267,7 @@ class DeathNoticeService
     private function dispatchPdfOcrJob(DeathNotice $notice, string $pdfPath): void
     {
         try {
-            // Convert PDF first page to image for OCR
+            // Convert PDF first page to image for OCR using Imagick
             $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_pdf_').'.jpg');
             $tempDir = dirname($tempImagePath);
 
@@ -278,7 +275,16 @@ class DeathNoticeService
                 mkdir($tempDir, 0755, true);
             }
 
-            if (! $this->pdfConverter->convertToJpg($pdfPath, $tempImagePath, 300)) {
+            $imagick = new Imagick;
+            $imagick->setResolution(300, 300);
+            $imagick->readImage($pdfPath.'[0]'); // Read first page only
+            $imagick->setImageFormat('jpeg');
+            $imagick->setImageCompressionQuality(90);
+            $imagick->writeImage($tempImagePath);
+            $imagick->clear();
+            $imagick->destroy();
+
+            if (! file_exists($tempImagePath)) {
                 Log::warning('Failed to convert PDF to JPG for OCR', [
                     'notice_hash' => $notice->hash,
                     'pdf' => $pdfPath,

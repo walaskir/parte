@@ -4,8 +4,8 @@ namespace App\Console\Commands;
 
 use App\Jobs\ExtractDeathDateJob;
 use App\Models\DeathNotice;
-use App\Services\PdfConverterService;
 use Illuminate\Console\Command;
+use Imagick;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 
 class ProcessExistingPartesCommand extends Command
@@ -14,12 +14,6 @@ class ProcessExistingPartesCommand extends Command
         {--missing-death-date : Only process records missing death_date}';
 
     protected $description = 'Process existing parte records to extract death date from PDFs';
-
-    public function __construct(
-        private PdfConverterService $pdfConverter
-    ) {
-        parent::__construct();
-    }
 
     public function handle(): int
     {
@@ -73,11 +67,18 @@ class ProcessExistingPartesCommand extends Command
             }
 
             try {
-                if (! $this->pdfConverter->convertToJpg($pdfPath, $tempImagePath, 300)) {
+                // Convert PDF to JPG using Imagick
+                $imagick = new Imagick;
+                $imagick->setResolution(300, 300);
+                $imagick->readImage($pdfPath.'[0]'); // Read first page only
+                $imagick->setImageFormat('jpeg');
+                $imagick->setImageCompressionQuality(90);
+                $imagick->writeImage($tempImagePath);
+                $imagick->clear();
+                $imagick->destroy();
+
+                if (! file_exists($tempImagePath)) {
                     $this->warn("Failed to convert PDF to JPG for {$notice->full_name}");
-                    if (file_exists($tempImagePath)) {
-                        unlink($tempImagePath);
-                    }
                     $skipped++;
 
                     continue;

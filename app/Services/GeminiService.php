@@ -16,9 +16,12 @@ class GeminiService
 
     private string $model = 'gemini-2.0-flash-exp';
 
+    private ?string $anthropicApiKey;
+
     public function __construct()
     {
         $this->apiKey = config('services.gemini.api_key');
+        $this->anthropicApiKey = config('services.anthropic.api_key');
 
         if (empty($this->apiKey)) {
             throw new Exception('Gemini API key is not configured. Please set GEMINI_API_KEY in .env file.');
@@ -41,9 +44,9 @@ class GeminiService
             $text = $this->ocrImage($imagePath);
 
             if (empty($text)) {
-                Log::warning('Tesseract OCR returned empty text, trying OpenRouter fallback', ['image_path' => $imagePath]);
+                Log::warning('Tesseract OCR returned empty text, trying Gemini fallback', ['image_path' => $imagePath]);
 
-                // If OCR returns empty text, try OpenRouter fallback immediately
+                // If OCR returns empty text, try Gemini fallback immediately
                 return $this->extractFromImageWithGemini($imagePath);
             }
 
@@ -438,6 +441,13 @@ Return ONLY the JSON object, nothing else.";
                     'error' => $response->body(),
                 ]);
 
+                // Try Anthropic fallback if available
+                if ($this->anthropicApiKey) {
+                    Log::info('Gemini failed, trying Anthropic fallback', ['image_path' => $imagePath]);
+
+                    return $this->extractFromImageWithAnthropic($imagePath);
+                }
+
                 return null;
             }
 
@@ -466,6 +476,112 @@ Return ONLY the JSON object, nothing else.";
             return null;
         } catch (Exception $e) {
             Log::error('Gemini extraction failed', [
+                'error' => $e->getMessage(),
+                'image_path' => $imagePath,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Extract information from parte image using Anthropic Claude (fallback method)
+     */
+    private function extractFromImageWithAnthropic(string $imagePath): ?array
+    {
+        try {
+            if (! file_exists($imagePath)) {
+                Log::error('Image file not found for Anthropic extraction', ['path' => $imagePath]);
+
+                return null;
+            }
+
+            // Read and encode image
+            $imageData = file_get_contents($imagePath);
+            $base64Image = base64_encode($imageData);
+            $mimeType = $this->getMimeType($imagePath);
+
+            $prompt = "Analyze this death notice (parte/obituary) image. Extract the following information in JSON format:
+{
+  \"full_name\": \"Full name of the deceased (first name and last name together)\",
+  \"death_date\": \"Date of death in YYYY-MM-DD format (or null if not found)\",
+  \"funeral_date\": \"Date of the funeral in YYYY-MM-DD format (or null if not found)\"
+}
+
+The text may be in Czech or Polish. Look for:
+- Death date: after words like 'zemřel/a', '†', 'zmarł/a', 'data śmierci'
+- Funeral date: after words like 'pohřeb', 'rozloučení', 'pogrzeb', 'pożegnanie'
+Dates can be in formats like '2.1.2026', '31.12.2025', or written as 'pátek 2. ledna 2026'.
+Return ONLY the JSON object, nothing else.";
+
+            $config = config('services.anthropic');
+
+            $response = Http::timeout(60)
+                ->withHeaders([
+                    'x-api-key' => $this->anthropicApiKey,
+                    'anthropic-version' => $config['version'],
+                    'content-type' => 'application/json',
+                ])
+                ->post('https://api.anthropic.com/v1/messages', [
+                    'model' => $config['model'],
+                    'max_tokens' => $config['max_tokens'],
+                    'messages' => [
+                        [
+                            'role' => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'image',
+                                    'source' => [
+                                        'type' => 'base64',
+                                        'media_type' => $mimeType,
+                                        'data' => $base64Image,
+                                    ],
+                                ],
+                                [
+                                    'type' => 'text',
+                                    'text' => $prompt,
+                                ],
+                            ],
+                        ],
+                    ],
+                ]);
+
+            if (! $response->successful()) {
+                Log::error('Anthropic API request failed', [
+                    'status' => $response->status(),
+                    'error' => $response->body(),
+                ]);
+
+                return null;
+            }
+
+            $data = $response->json();
+            $responseText = $data['content'][0]['text'] ?? null;
+
+            if (! $responseText) {
+                Log::warning('Anthropic returned empty response', ['data' => $data]);
+
+                return null;
+            }
+
+            // Parse JSON response
+            $json = $this->extractJson($responseText);
+
+            if ($json) {
+                Log::info('Anthropic successfully extracted data', ['json' => $json]);
+
+                return [
+                    'full_name' => $json['full_name'] ?? null,
+                    'death_date' => $json['death_date'] ?? null,
+                    'funeral_date' => $json['funeral_date'] ?? null,
+                ];
+            }
+
+            Log::warning('Anthropic returned invalid JSON', ['response' => $responseText]);
+
+            return null;
+        } catch (Exception $e) {
+            Log::error('Anthropic extraction failed', [
                 'error' => $e->getMessage(),
                 'image_path' => $imagePath,
             ]);

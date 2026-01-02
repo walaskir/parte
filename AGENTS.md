@@ -116,17 +116,20 @@ Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, 
 - PDF generuj přes **Spatie Browsershot**:
   - HTML → PDF: generuj Blade šablonou (`resources/views/pdf/death-notice.blade.php`) a pak `Browsershot::html($html)`.
   - Obrázek → PDF (např. PS BK): stáhni obrázek pomocí `Http`, vytvoř dočasný soubor v `storage/app/temp`, zabal do HTML s `<img>` a převeď na PDF.
-- **PDF → JPG konverze** pomocí **PdfConverterService**:
-  - Service používá `spatie/pdf-to-image` s automatickým fallbackem (Imagick → Ghostscript).
-  - Vždy nastav DPI 300 pro optimální OCR kvalitu: `$pdfConverter->convertToJpg($pdf, $output, 300)`.
-  - Testuj dostupnost pomocí `$pdfConverter->isAvailable()` před použitím.
-  - Ghostscript musí být nainstalován na serveru (`gs` binary).
-  - Inject `PdfConverterService` do konstruktoru services/commands, které potřebují PDF konverzi.
-- OCR extrakce dat pomocí **Tesseract + Google Gemini AI**:
+- **PDF → JPG konverze** pomocí **Imagick**:
+  - Přímé použití Imagick pro konverzi PDF na JPG (bez PdfConverterService).
+  - Vždy nastav DPI 300 pro optimální OCR kvalitu: `$imagick->setResolution(300, 300)`.
+  - Čti pouze první stránku PDF: `$imagick->readImage($pdfPath.'[0]')`.
+  - Nastav formát JPEG: `$imagick->setImageFormat('jpeg')`.
+  - Nastav kvalitu komprese: `$imagick->setImageCompressionQuality(90)`.
+  - Po použití vždy zavolej `$imagick->clear()` a `$imagick->destroy()` pro uvolnění paměti.
+- OCR extrakce dat pomocí **Tesseract + Google Gemini AI + Anthropic Claude**:
   - `GeminiService::extractFromImage()` – primární metoda pro OCR extrakci.
-  - Hybridní přístup: regex patterny → Gemini AI fallback při selhání.
+  - Hybridní přístup: regex patterny → Gemini AI fallback → Anthropic Claude fallback při selhání.
   - Gemini API klíč: konfigurován v `config/services.php` jako `services.gemini.api_key`.
-  - Free tier limit: 1500 requestů/den (resetuje se denně).
+  - Anthropic API klíč: konfigurován v `config/services.php` jako `services.anthropic.api_key`.
+  - Free tier limit Gemini: 1500 requestů/den (resetuje se denně).
+  - Anthropic Claude slouží jako záložní řešení při vyčerpání Gemini kvóty.
 - **Jobs pro asynchronní zpracování** (Laravel Horizon):
   - Všechny joby používají `ShouldQueue` interface.
   - Retry logika: `$tries = 3`, `$backoff = 60`, `$timeout = 180`.

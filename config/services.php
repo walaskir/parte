@@ -39,15 +39,11 @@ return [
         'api_key' => env('GEMINI_API_KEY'),
     ],
 
-    'openrouter' => [
-        'api_key' => env('OPENROUTER_API_KEY'),
-        'model' => env('OPENROUTER_MODEL', 'google/gemini-flash-1.5:free'),
-    ],
-
-    'pdf' => [
-        'converter' => env('PDF_CONVERTER', 'auto'), // 'imagick', 'ghostscript', 'auto'
-        'ghostscript_path' => env('GHOSTSCRIPT_PATH', 'gs'),
-        'timeout' => env('PDF_CONVERSION_TIMEOUT', 60),
+    'anthropic' => [
+        'api_key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('ANTHROPIC_MODEL', 'claude-3-haiku-20240307'),
+        'max_tokens' => env('ANTHROPIC_MAX_TOKENS', 1024),
+        'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
     ],
 
 ];
