@@ -18,8 +18,7 @@
         "smalot/pdfparser": "^2.12",
         "spatie/browsershot": "*",
         "spatie/laravel-medialibrary": "*",
-        "symfony/dom-crawler": "*",
-        "thiagoalessio/tesseract_ocr": "^2.13"
+        "symfony/dom-crawler": "*"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

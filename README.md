@@ -5,9 +5,9 @@ Laravel aplikace pro automatické stahování, zpracování a archivaci parte (�
 ## Funkce
 
 - 🔄 Automatické scrapování parte z pohřebních služeb
-- 🤖 OCR extrakce dat (jméno, datum úmrtí, datum pohřbu) pomocí Tesseract
+- 🤖 AI Vision extrakce dat (jméno, datum úmrtí, datum pohřbu) pomocí ZhipuAI GLM-4V + Anthropic Claude
 - 📄 Generování a ukládání PDF
-- ⚡ Asynchronní zpracování přes Laravel Horizon
+- ⚡ Asynchronní sekvenční zpracování přes Laravel Horizon
 - 🔁 Automatické opakování při selhání (3× retry)
 - 🗄️ Ukládání do databáze s deduplikací
 
@@ -32,22 +32,14 @@ Vytvořte nový server v Laravel Forge s následující konfigurací:
 Po vytvoření serveru se připojte přes SSH a nainstalujte požadované balíčky:
 
 ```bash
-# Tesseract OCR pro extrakci textu z obrázků
-sudo apt-get update
-sudo apt-get install -y tesseract-ocr
-
-# Jazykové balíčky pro češtinu, polštinu a angličtinu
-sudo apt-get install -y tesseract-ocr-ces tesseract-ocr-pol tesseract-ocr-eng
-
 # ImageMagick pro konverzi PDF na obrázky
+sudo apt-get update
 sudo apt-get install -y imagemagick
 
 # PHP rozšíření
 sudo apt-get install -y php8.4-imagick php8.4-gd
 
 # Ověření instalace
-tesseract --version
-tesseract --list-langs  # Mělo by zobrazit: ces, eng, pol
 php -m | grep imagick   # Mělo by zobrazit: imagick
 ```
 
@@ -99,8 +91,15 @@ QUEUE_CONNECTION=redis
 # Scraper User-Agent (aktualizujte na nejnovější Chrome verzi)
 SCRAPER_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-# Gemini API pro OCR (volitelné, fallback když Tesseract selže)
-GEMINI_API_KEY=vaš-gemini-api-klíč
+# ZhipuAI GLM-4V API (primární OCR engine)
+ZHIPUAI_API_KEY=your-zhipuai-api-key
+ZHIPUAI_MODEL=glm-4.6v-flash
+ZHIPUAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+
+# Anthropic Claude API (fallback OCR engine)
+ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+ANTHROPIC_MAX_TOKENS=2048
 ```
 
 4. **Upravte Deploy Script** v Forge:
@@ -242,13 +241,13 @@ php artisan queue:retry all
 ## Technologie
 
 - **Laravel 12** - PHP framework
-- **Laravel Horizon** - Queue management
-- **Tesseract OCR** - Extrakce textu z obrázků (čeština, polština)
+- **Laravel Horizon** - Queue management (sekvenční zpracování jobů)
+- **ZhipuAI GLM-4V** - Primární AI Vision OCR (čeština, polština)
+- **Anthropic Claude Vision** - Fallback AI Vision OCR
 - **Spatie Media Library** - Správa souborů
 - **Spatie Browsershot** - Generování PDF z HTML
 - **Smalot PDF Parser** - Parsování PDF textu
 - **Symfony DomCrawler** - Web scraping
-- **Google Gemini API** - Fallback OCR (volitelné)
 
 ## Struktura databáze
 
@@ -262,15 +261,46 @@ php artisan queue:retry all
 - `source_url` - URL zdroje
 - PDFs uloženy v `storage/app/parte/{hash}/` přes Spatie Media Library
 
-## Troubleshooting
+## AI Vision OCR
 
-### Tesseract: "Error opening data file ces.traineddata"
+Aplikace používá **ZhipuAI GLM-4V** jako primární engine pro extrakci dat z parte obrázků.
 
-```bash
-# Reinstalujte jazykové balíčky
-sudo apt-get install --reinstall tesseract-ocr-ces tesseract-ocr-pol
-tesseract --list-langs  # Ověřte instalaci
+### Konfigurace
+
+```env
+# Primární OCR engine
+ZHIPUAI_API_KEY=your-api-key
+ZHIPUAI_MODEL=glm-4.6v-flash
+
+# Fallback OCR engine
+ANTHROPIC_API_KEY=your-api-key
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+ANTHROPIC_MAX_TOKENS=2048
 ```
+
+### Extrakční flow
+
+1. **ZhipuAI GLM-4V** (primární, ~2-5s)
+   - Podporuje PDF i JPG
+   - Base64 encoding
+   - Timeout 90s
+
+2. **Anthropic Claude** (fallback, ~3-6s)
+   - Pouze JPG
+   - Vysoká přesnost
+   - Timeout 90s
+
+### Sekvenční zpracování
+
+Extrakční joby běží **postupně (jeden po druhém)** na dedikované `extraction` frontě s `maxJobs=1` konfigurací v Horizon. Toto zajišťuje stabilní zpracování a prevenci rate limitů.
+
+### Ceny (orientační, 2026)
+
+- **ZhipuAI:** ~$0.001-0.002 / parte obrázek
+- **Anthropic:** ~$0.003-0.005 / parte obrázek
+- **Denní náklady (10 parte):** ~$0.01-0.05
+
+## Troubleshooting
 
 ### ImageMagick: "not authorized" error
 

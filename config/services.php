@@ -35,14 +35,16 @@ return [
         ],
     ],
 
-    'gemini' => [
-        'api_key' => env('GEMINI_API_KEY'),
+    'zhipuai' => [
+        'api_key' => env('ZHIPUAI_API_KEY'),
+        'model' => env('ZHIPUAI_MODEL', 'glm-4.6v-flash'),
+        'base_url' => env('ZHIPUAI_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4'),
     ],
 
     'anthropic' => [
         'api_key' => env('ANTHROPIC_API_KEY'),
-        'model' => env('ANTHROPIC_MODEL', 'claude-3-haiku-20240307'),
-        'max_tokens' => (int) env('ANTHROPIC_MAX_TOKENS', 1024),
+        'model' => env('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
+        'max_tokens' => (int) env('ANTHROPIC_MAX_TOKENS', 2048),
         'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
     ],
 

@@ -3,7 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\DeathNotice;
-use App\Services\GeminiService;
+use App\Services\VisionOcrService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -22,7 +22,7 @@ class ExtractDeathDateJob implements ShouldQueue
     /**
      * Number of seconds before timing out.
      */
-    public int $timeout = 180;
+    public int $timeout = 300;
 
     /**
      * Seconds to wait before retrying the job.
@@ -35,12 +35,14 @@ class ExtractDeathDateJob implements ShouldQueue
     public function __construct(
         public DeathNotice $deathNotice,
         public string $imagePath
-    ) {}
+    ) {
+        $this->onQueue('extraction');
+    }
 
     /**
      * Execute the job - extract death_date from parte image using OCR.
      */
-    public function handle(GeminiService $geminiService): void
+    public function handle(VisionOcrService $visionOcrService): void
     {
         Log::info("Starting death_date extraction for DeathNotice {$this->deathNotice->hash}", [
             'id' => $this->deathNotice->id,
@@ -56,7 +58,7 @@ class ExtractDeathDateJob implements ShouldQueue
             }
 
             // Extract ONLY death_date
-            $ocrData = $geminiService->extractFromImage($this->imagePath, extractDeathDate: true);
+            $ocrData = $visionOcrService->extractFromImage($this->imagePath, extractDeathDate: true);
 
             // Update death_date and announcement_text (keep existing full_name and funeral_date)
             $updateData = [];

@@ -7,7 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 test('service can get available sources', function () {
-    $service = new DeathNoticeService();
+    $service = new DeathNoticeService;
     $sources = $service->getAvailableSources();
 
     expect($sources)->toBeArray()

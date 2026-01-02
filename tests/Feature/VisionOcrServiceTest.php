@@ -1,0 +1,135 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Services\VisionOcrService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+class VisionOcrServiceTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Mock config for tests
+        Config::set('services.zhipuai.api_key', 'test-zhipuai-key');
+        Config::set('services.zhipuai.model', 'glm-4.6v-flash');
+        Config::set('services.zhipuai.base_url', 'https://open.bigmodel.cn/api/paas/v4');
+        Config::set('services.anthropic.api_key', 'test-anthropic-key');
+        Config::set('services.anthropic.model', 'claude-3-5-sonnet-20241022');
+        Config::set('services.anthropic.max_tokens', 2048);
+        Config::set('services.anthropic.version', '2023-06-01');
+    }
+
+    public function test_zhipuai_extraction_success(): void
+    {
+        Http::fake([
+            'open.bigmodel.cn/*' => Http::response([
+                'choices' => [
+                    [
+                        'message' => [
+                            'content' => '{"full_name":"Jan Novák","death_date":"2026-01-01","funeral_date":"2026-01-05","announcement_text":"S bolestí v srdci oznamujeme, že dne 1. ledna 2026 nás navždy opustil pan Jan Novák. Rozloučení se koná v pátek 5. ledna 2026 ve 14:00 hodin v obřadní síni krematoria v Ostravě."}',
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        // Create temporary test image
+        $imagePath = storage_path('app/test_parte.jpg');
+        file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
+
+        $service = new VisionOcrService;
+        $result = $service->extractFromImage($imagePath);
+
+        $this->assertNotNull($result);
+        $this->assertEquals('Jan Novák', $result['full_name']);
+        $this->assertEquals('2026-01-01', $result['death_date']);
+        $this->assertEquals('2026-01-05', $result['funeral_date']);
+        $this->assertStringContainsString('S bolestí v srdci', $result['announcement_text']);
+
+        // Cleanup
+        @unlink($imagePath);
+    }
+
+    public function test_anthropic_fallback_when_zhipuai_fails(): void
+    {
+        Http::fake([
+            'open.bigmodel.cn/*' => Http::response([], 500),
+            'api.anthropic.com/*' => Http::response([
+                'content' => [
+                    ['text' => '{"full_name":"Marie Dvořáková","death_date":"2026-01-02","funeral_date":"2026-01-06","announcement_text":"Zemřela naše milovaná maminka."}'],
+                ],
+            ], 200),
+        ]);
+
+        $imagePath = storage_path('app/test_parte.jpg');
+        file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
+
+        $service = new VisionOcrService;
+        $result = $service->extractFromImage($imagePath);
+
+        $this->assertNotNull($result);
+        $this->assertEquals('Marie Dvořáková', $result['full_name']);
+        $this->assertEquals('2026-01-02', $result['death_date']);
+
+        @unlink($imagePath);
+    }
+
+    public function test_extraction_returns_null_when_both_apis_fail(): void
+    {
+        Http::fake([
+            'open.bigmodel.cn/*' => Http::response([], 500),
+            'api.anthropic.com/*' => Http::response([], 500),
+        ]);
+
+        $imagePath = storage_path('app/test_parte.jpg');
+        file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
+
+        $service = new VisionOcrService;
+        $result = $service->extractFromImage($imagePath);
+
+        $this->assertNull($result);
+
+        @unlink($imagePath);
+    }
+
+    public function test_extraction_returns_null_for_nonexistent_image(): void
+    {
+        $service = new VisionOcrService;
+        $result = $service->extractFromImage('/nonexistent/path/to/image.jpg');
+
+        $this->assertNull($result);
+    }
+
+    public function test_validates_extraction_for_death_date_mode(): void
+    {
+        Http::fake([
+            'open.bigmodel.cn/*' => Http::response([
+                'choices' => [
+                    [
+                        'message' => [
+                            'content' => '{"full_name":"Jan Novák","death_date":"2026-01-01","funeral_date":"2026-01-05","announcement_text":"Test"}',
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $imagePath = storage_path('app/test_parte.jpg');
+        file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
+
+        $service = new VisionOcrService;
+        $result = $service->extractFromImage($imagePath, extractDeathDate: true);
+
+        $this->assertNotNull($result);
+        $this->assertEquals('2026-01-01', $result['death_date']);
+
+        @unlink($imagePath);
+    }
+}
