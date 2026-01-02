@@ -94,7 +94,7 @@ DB_DATABASE=parte
 DB_USERNAME=forge
 DB_PASSWORD=vaše-db-heslo
 
-QUEUE_CONNECTION=database
+QUEUE_CONNECTION=redis
 
 # Scraper User-Agent (aktualizujte na nejnovější Chrome verzi)
 SCRAPER_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
