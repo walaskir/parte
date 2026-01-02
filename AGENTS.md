@@ -22,11 +22,14 @@ Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, 
 - `./vendor/bin/pest` – spusť všechny testy.
 - `./vendor/bin/pest tests/Feature/DeathNoticeServiceTest.php` – jediný testovací soubor.
 - `./vendor/bin/pest --filter="death notice can be created with valid data"` – jediný test dle názvu.
+- `./vendor/bin/pest --filter="test name"` – rychlý běh konkrétního testu (doporučeno po změnách).
 - `php artisan test` – alternativa, preferuj ale Pest přímo.
+- Po změnách v kódu VŽDY spusť relevantní testy před finalizací.
 
 **Lint / formátování:**
-- Pokud je v projektu nainstalován Laravel Pint:
-  - `./vendor/bin/pint` – automatický formátovač PHP kódu.
+- `./vendor/bin/pint` – automatický formátovač PHP kódu (Laravel Pint).
+- `./vendor/bin/pint --dirty` – formátuj pouze změněné soubory (rychlejší).
+- VŽDY spusť Pint před finalizací změn, aby kód odpovídal projektu.
 - Neinstaluj nové nástroje (PHP-CS-Fixer, ESLint, atd.) bez výslovného pokynu uživatele.
 
 ---
@@ -34,12 +37,18 @@ Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, 
 ## 2. Struktura projektu a obecné zásady
 
 - Framework: Laravel 12.x, testy: Pest (`tests/Feature`, `tests/Unit`).
+- Queue: Laravel Horizon (Redis-based) pro asynchronní zpracování jobů.
 - Doménové jádro této aplikace:
   - `app/Models/DeathNotice.php` – model parte.
+  - `app/Models/FuneralService.php` – model pohřebních služeb (zdroje dat).
   - `app/Services/DeathNoticeService.php` – orchestruje scrapování, ukládání a PDF.
-  - `app/Services/Scrapers/*Scraper.php` – scrapery pro jednotlivé pohřební služby.
+  - `app/Services/Scrapers/*Scraper.php` – scrapery pro jednotlivé pohřební služby (PSBKScraper, PSHajdukovaScraper, SadovyJanScraper).
+  - `app/Services/GeminiService.php` – OCR a AI extrakce dat z parte (Tesseract + Gemini AI fallback).
   - `app/Services/HashPathGenerator.php` – vlastní path generator pro Spatie Media Library.
+  - `app/Jobs/ExtractImageParteJob.php` – job pro extrakci jména a data pohřbu z obrázků (PS BK).
+  - `app/Jobs/ExtractDeathDateJob.php` – job pro extrakci data úmrtí (všechny zdroje).
   - `app/Console/Commands/DownloadDeathNotices.php` – artisan příkaz `parte:download`.
+  - `app/Console/Commands/ProcessExistingPartesCommand.php` – artisan příkaz `parte:process-existing`.
 - Soubory v `ai/` obsahují obecné instrukce pro Laravel SaaS vývoj; respektuj je, ale tento `AGENTS.md` má pro tento repozitář prioritu.
 - Nepřidávej nové subsystémy (front-end framework, API vrstvy) bez výslovného zadání.
 
@@ -99,14 +108,24 @@ Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, 
 
 ## 5. Media, PDF a externí služby
 
-- Pro práci se soubory používej Spatie Media Library:
+- Pro práci se soubory používej **Spatie Media Library**:
   - Model implementuje `HasMedia` a používá trait `InteractsWithMedia`.
   - Kolekce `pdf` je `singleFile()` a přijímá pouze MIME `application/pdf`.
   - Kolekce používá disk `parte` (konfigurovaný v `config/filesystems.php`).
   - Custom path generator `HashPathGenerator` ukládá PDFs do `storage/app/parte/{hash}/`.
-- PDF generuj přes Spatie Browsershot:
+- PDF generuj přes **Spatie Browsershot**:
   - HTML → PDF: generuj Blade šablonou (`resources/views/pdf/death-notice.blade.php`) a pak `Browsershot::html($html)`.
   - Obrázek → PDF (např. PS BK): stáhni obrázek pomocí `Http`, vytvoř dočasný soubor v `storage/app/temp`, zabal do HTML s `<img>` a převeď na PDF.
+- OCR extrakce dat pomocí **Tesseract + Google Gemini AI**:
+  - `GeminiService::extractFromImage()` – primární metoda pro OCR extrakci.
+  - Hybridní přístup: regex patterny → Gemini AI fallback při selhání.
+  - Gemini API klíč: konfigurován v `config/services.php` jako `services.gemini.api_key`.
+  - Free tier limit: 1500 requestů/den (resetuje se denně).
+- **Jobs pro asynchronní zpracování** (Laravel Horizon):
+  - Všechny joby používají `ShouldQueue` interface.
+  - Retry logika: `$tries = 3`, `$backoff = 60`, `$timeout = 180`.
+  - `ExtractImageParteJob` → extrahuje jméno + datum pohřbu → dispatche `ExtractDeathDateJob`.
+  - `ExtractDeathDateJob` → extrahuje datum úmrtí → smaže temp soubor.
 - Dočasné soubory vždy po úspěšném zpracování smaž.
 - Neprováděj síťová volání v testech bez mocků (`Http::fake()` apod.).
 - Při stahování PDF ze zdrojových URL zachovej originální název souboru (např. `krzyžanková120251229_09470174.pdf`).
@@ -118,6 +137,7 @@ Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, 
 - Pro parsování dat z textů VŽDY používej Carbon místo manuálního regex.
 - Nastav českou lokalizaci: `Carbon::setLocale('cs')` pro podporu českých názvů měsíců.
 - Pro české numerické datum (např. "2.1.2026", "31.12.2025") používej formát `j.n.Y` v `Carbon::createFromFormat()`.
+- Formát `j.n.Y` podporuje i mezery: "21. 12. 2025" → 2025-12-21.
 - Vždy obaluj parsování do `try/catch` a loguj selhání pomocí `Log::warning()`.
 - Příklad z `SadovyJanScraper::parseDate()`:
   ```php
@@ -129,6 +149,15 @@ Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, 
       return null;
   }
   ```
+
+### Priority regex patterns pro datum úmrtí
+
+V `GeminiService::parseParteText()` dodržuj prioritní pořadí:
+1. **Polské názvy měsíců** (nejvyšší priorita): "dnia 26 grudnia 2025 zmarła"
+2. **Numerická data s klíčovými slovy**: "zemřel dne 25.12.2025", "Zmarł w środę dnia 24.12.2025"
+3. **Fallback**: extrahuj všechna data, použij heuristiku
+
+Toto pořadí zabraňuje záměně data úmrtí a data pohřbu.
 
 ---
 

@@ -14,14 +14,6 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         //
     })
-    ->withSchedule(function (Schedule $schedule): void {
-        // Download death notices daily at 16:00
-        $schedule->command('parte:download --all')
-            ->dailyAt('16:00')
-            ->name('download-death-notices')
-            ->onOneServer()
-            ->withoutOverlapping();
-    })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
     })->create();
