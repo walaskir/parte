@@ -83,9 +83,9 @@ class ExtractImageParteJob implements ShouldQueue
             ]);
 
             // Dispatch death_date extraction job (step 2)
-            ExtractDeathDateJob::dispatch($this->deathNotice, $this->imagePath);
+            ExtractDeathDateAndAnnouncementJob::dispatch($this->deathNotice, $this->imagePath);
 
-            Log::info("Dispatched ExtractDeathDateJob for DeathNotice {$this->deathNotice->hash}");
+            Log::info("Dispatched ExtractDeathDateAndAnnouncementJob for DeathNotice {$this->deathNotice->hash}");
         } catch (\Exception $e) {
             Log::error("Image extraction failed for DeathNotice {$this->deathNotice->hash}", [
                 'error' => $e->getMessage(),

@@ -2,10 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\ExtractDeathDateJob;
+use App\Jobs\ExtractDeathDateAndAnnouncementJob;
 use App\Models\DeathNotice;
 use Illuminate\Console\Command;
-use Imagick;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 
 class ProcessExistingPartesCommand extends Command
@@ -81,7 +80,7 @@ class ProcessExistingPartesCommand extends Command
 
             try {
                 // Convert PDF to JPG using Imagick
-                $imagick = new Imagick;
+                $imagick = new \Imagick;
                 $imagick->setResolution(300, 300);
                 $imagick->readImage($pdfPath.'[0]'); // Read first page only
                 $imagick->setImageFormat('jpeg');
@@ -98,7 +97,7 @@ class ProcessExistingPartesCommand extends Command
                 }
 
                 // Dispatch OCR job
-                ExtractDeathDateJob::dispatch($notice, $tempImagePath);
+                ExtractDeathDateAndAnnouncementJob::dispatch($notice, $tempImagePath);
                 $processed++;
             } catch (\Exception $e) {
                 $this->error("Failed to process notice {$notice->hash}: {$e->getMessage()}");

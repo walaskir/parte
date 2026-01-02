@@ -10,7 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
-class ExtractDeathDateJob implements ShouldQueue
+class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
 {
     use InteractsWithQueue, Queueable, SerializesModels;
 
@@ -112,7 +112,7 @@ class ExtractDeathDateJob implements ShouldQueue
      */
     public function failed(\Throwable $exception): void
     {
-        Log::error("ExtractDeathDateJob permanently failed for DeathNotice {$this->deathNotice->hash}", [
+        Log::error("ExtractDeathDateAndAnnouncementJob permanently failed for DeathNotice {$this->deathNotice->hash}", [
             'error' => $exception->getMessage(),
             'trace' => $exception->getTraceAsString(),
         ]);

@@ -294,7 +294,7 @@ class DeathNoticeService
             }
 
             // Dispatch death_date extraction job to queue (asynchronous with retry)
-            \App\Jobs\ExtractDeathDateJob::dispatch($notice, $tempImagePath);
+            \App\Jobs\ExtractDeathDateAndAnnouncementJob::dispatch($notice, $tempImagePath);
 
             Log::info("Dispatched death_date extraction job for PDF-based notice {$notice->hash}");
         } catch (\Exception $e) {

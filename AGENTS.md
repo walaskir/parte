@@ -39,7 +39,7 @@ php artisan key:generate && php artisan migrate
 - `app/Services/VisionOcrService.php` - AI Vision extraction (ZhipuAI GLM-4V → Anthropic Claude fallback)
 - `app/Services/Scrapers/*Scraper.php` - Individual scrapers (PSBKScraper, PSHajdukovaScraper, SadovyJanScraper)
 - `app/Jobs/ExtractImageParteJob.php` - Extract name + funeral date + announcement_text from images (queue: extraction)
-- `app/Jobs/ExtractDeathDateJob.php` - Extract death date + announcement_text (queue: extraction)
+- `app/Jobs/ExtractDeathDateAndAnnouncementJob.php` - Extract death date + announcement_text (queue: extraction)
 - `app/Console/Commands/DownloadDeathNotices.php` - `php artisan parte:download`
 - `app/Console/Commands/ProcessExistingPartesCommand.php` - `php artisan parte:process-existing`
 
