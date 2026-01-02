@@ -1,584 +1,209 @@
 # AGENTS.md
 
-Pokyny pro agentické nástroje (Claude, Cursor, Copilot, atd.) pracující v tomto repozitáři. 
-Cíl: bezpečné, konzistentní a předvídatelné úpravy Laravel aplikace `parte`.
+Instructions for AI coding agents (Claude, Cursor, Copilot) working in this Laravel 12 "parte" application.
+Goal: Safe, consistent, and predictable changes to the death notice scraping and archival system.
 
 ---
 
-## 1. Build / test / lint příkazy
+## 1. Build / Test / Lint Commands
 
-Vždy předpokládaj standardní Laravel prostředí (PHP 8.4+, Composer, Node, SQLite/MySQL test DB).
+### Setup
+```bash
+composer install              # Install PHP dependencies
+npm install                   # Install JS/CSS dependencies (if needed)
+php artisan key:generate      # Generate app key (one-time)
+php artisan migrate           # Run migrations
+```
 
-- `composer install` – nainstaluj PHP závislosti.
-- `npm install` – nainstaluj JS/CSS závislosti (jen pokud pracuješ s frontendem nebo buildem).
-- `php artisan key:generate` – jednorázově po vytvoření `.env`.
-- `php artisan migrate` – spusť migrace (pro lokální/testovací DB).
+### Testing (Pest)
+```bash
+./vendor/bin/pest                                           # Run all tests
+./vendor/bin/pest tests/Feature/GeminiServiceTest.php      # Single file
+./vendor/bin/pest --filter="specific test name"            # Single test (RECOMMENDED after changes)
+php artisan test                                            # Alternative (use Pest directly instead)
+```
+**ALWAYS run relevant tests before finalizing changes.**
 
-**Assets (Vite):**
-- `npm run dev` – vývojový server / watch pro frontend.
-- `npm run build` – produkční build assetů (spouštěj jen, když to dává smysl pro úkol).
+### Linting / Formatting
+```bash
+./vendor/bin/pint --dirty     # Format changed files (run before commit)
+./vendor/bin/pint             # Format all files
+```
+**ALWAYS run Pint before finalizing changes.**
 
-**Testy (Pest):**
-- `./vendor/bin/pest` – spusť všechny testy.
-- `./vendor/bin/pest tests/Feature/DeathNoticeServiceTest.php` – jediný testovací soubor.
-- `./vendor/bin/pest --filter="death notice can be created with valid data"` – jediný test dle názvu.
-- `./vendor/bin/pest --filter="test name"` – rychlý běh konkrétního testu (doporučeno po změnách).
-- `php artisan test` – alternativa, preferuj ale Pest přímo.
-- Po změnách v kódu VŽDY spusť relevantní testy před finalizací.
-
-**Lint / formátování:**
-- `./vendor/bin/pint` – automatický formátovač PHP kódu (Laravel Pint).
-- `./vendor/bin/pint --dirty` – formátuj pouze změněné soubory (rychlejší).
-- VŽDY spusť Pint před finalizací změn, aby kód odpovídal projektu.
-- Neinstaluj nové nástroje (PHP-CS-Fixer, ESLint, atd.) bez výslovného pokynu uživatele.
-
----
-
-## 2. Struktura projektu a obecné zásady
-
-- Framework: Laravel 12.x, testy: Pest (`tests/Feature`, `tests/Unit`).
-- Queue: Laravel Horizon (Redis-based) pro asynchronní zpracování jobů.
-- Doménové jádro této aplikace:
-  - `app/Models/DeathNotice.php` – model parte.
-  - `app/Models/FuneralService.php` – model pohřebních služeb (zdroje dat).
-  - `app/Services/DeathNoticeService.php` – orchestruje scrapování, ukládání a PDF.
-  - `app/Services/Scrapers/*Scraper.php` – scrapery pro jednotlivé pohřební služby (PSBKScraper, PSHajdukovaScraper, SadovyJanScraper).
-  - `app/Services/GeminiService.php` – OCR a AI extrakce dat z parte (Tesseract + Gemini AI fallback).
-  - `app/Services/HashPathGenerator.php` – vlastní path generator pro Spatie Media Library.
-  - `app/Jobs/ExtractImageParteJob.php` – job pro extrakci jména a data pohřbu z obrázků (PS BK).
-  - `app/Jobs/ExtractDeathDateJob.php` – job pro extrakci data úmrtí (všechny zdroje).
-  - `app/Console/Commands/DownloadDeathNotices.php` – artisan příkaz `parte:download`.
-  - `app/Console/Commands/ProcessExistingPartesCommand.php` – artisan příkaz `parte:process-existing`.
-- Soubory v `ai/` obsahují obecné instrukce pro Laravel SaaS vývoj; respektuj je, ale tento `AGENTS.md` má pro tento repozitář prioritu.
-- Nepřidávej nové subsystémy (front-end framework, API vrstvy) bez výslovného zadání.
+### Assets (Vite)
+```bash
+npm run dev                   # Development server / watch
+npm run build                 # Production build
+```
 
 ---
 
-## 3. PHP / Laravel kódový styl
+## 2. Project Structure & Domain
 
-### Imports (`use` blok)
+**Framework:** Laravel 12.x, PHP 8.4+, Pest testing, Laravel Horizon (Redis queue)
 
-- Vždy používej `use` direktivy na začátku souboru, nepoužívej zbytečně plně kvalifikované názvy v těle.
-- Seskup a řaď `use` bloky logicky:
-  - Nejprve `App\...` (vlastní třídy),
-  - poté `Illuminate\...` (Laravel),
-  - pak ostatní vendory (`Spatie\...`, `Symfony\...`, `Carbon\...`, atd.).
-- Odstraň nepoužívané importy.
+**Core Domain Files:**
+- `app/Models/DeathNotice.php` - Death notice model
+- `app/Models/FuneralService.php` - Funeral service sources
+- `app/Services/DeathNoticeService.php` - Orchestrates scraping, storage, PDF
+- `app/Services/Scrapers/*Scraper.php` - Individual scrapers (PSBKScraper, PSHajdukovaScraper, SadovyJanScraper)
+- `app/Services/GeminiService.php` - OCR + AI extraction (Tesseract → Gemini → Anthropic fallback)
+- `app/Jobs/ExtractImageParteJob.php` - Extract name + funeral date from images
+- `app/Jobs/ExtractDeathDateJob.php` - Extract death date
+- `app/Console/Commands/DownloadDeathNotices.php` - `php artisan parte:download`
+- `app/Console/Commands/ProcessExistingPartesCommand.php` - `php artisan parte:process-existing`
 
-### Formátování
-
-- Odsazení: 4 mezery, žádné tabulátory.
-- Otevírací složená závorka třídy/metody na stejném řádku.
-- Řádky ideálně do ~120 znaků; delší konstrukce (pole, řetězce) rozděluj na více řádků.
-- Používej krátkou syntaxi polí `[]`.
-- V poli preferuj jasnou strukturu:
-  - jeden prvek na řádek u delších polí,
-  - zarovnání klíčů pouze pokud zůstává čitelné.
-
-### Typy a signatury
-
-- Vždy, kde to dává smysl, přidej:
-  - typy parametrů (`function downloadNotices(?array $sources = null): array`),
-  - návratové typy (`: ?string`, `: int`, `: DeathNotice`).
-- Deklaruj typy vlastností (`private array $scrapers = [];`).
-- Používej `?Type` pro nullable hodnoty.
-- Pokud je potřeba přesnější typ pro pole, uveď ho v PHPDoc (např. `@var array<string, class-string>`).
-
-### Pojmenování
-
-- Třídy: PascalCase (`DeathNoticeService`, `SadovyJanScraper`).
-- Metody a proměnné: camelCase (`generatePdf`, `$availableSources`).
-- Proměnné pojmenovávej sémanticky (`$funeralDate`, `$hashString`), ne genericky (`$foo`, `$bar`).
-- Pro booleany používej názvy typu `is...`, `has...`, `should...`.
+**Don't add new subsystems without explicit approval.**
 
 ---
 
-## 4. Doména: oznámení úmrtí a hash
+## 3. PHP Code Style
 
-- Každé oznámení má v DB jedno textové pole `full_name` (jméno a příjmení dohromady), nedělí se na `first_name` / `last_name`.
-- Hash slouží jako unikátní identifikátor oznámení.
-- Výpočet hashe vychází z kombinace:
-  - `full_name`, datum pohřbu (pokud je k dispozici), zdrojová URL oznámení.
-- Algoritmus: `sha256` a uložení prvních 12 znaků:
-  - `substr(hash('sha256', $hashString), 0, 12)`.
-- Migrace `death_notices` používá `string('hash', 12)->unique()->index()` – zachovej tuto délku a unikátnost.
-- Před uložením nového záznamu vždy kontroluj existenci hashe, aby se zabránilo duplicitám.
+### Imports
+- Group `use` statements: `App\...` → `Illuminate\...` → vendors (`Spatie\...`, `Carbon\...`)
+- Remove unused imports
 
----
+### Formatting
+- 4 spaces indentation (no tabs)
+- Opening brace on same line
+- Max ~120 chars per line
+- Use short array syntax `[]`
+- Type hints everywhere: parameters, return types, properties
 
-## 5. Media, PDF a externí služby
+### Naming
+- Classes: `PascalCase` (`DeathNoticeService`)
+- Methods/variables: `camelCase` (`generatePdf`, `$funeralDate`)
+- Booleans: `is...`, `has...`, `should...`
+- Use semantic names, not generic (`$foo`, `$bar`)
 
-- Pro práci se soubory používej **Spatie Media Library**:
-  - Model implementuje `HasMedia` a používá trait `InteractsWithMedia`.
-  - Kolekce `pdf` je `singleFile()` a přijímá pouze MIME `application/pdf`.
-  - Kolekce používá disk `parte` (konfigurovaný v `config/filesystems.php`).
-  - Custom path generator `HashPathGenerator` ukládá PDFs do `storage/app/parte/{hash}/`.
-- PDF generuj přes **Spatie Browsershot**:
-  - HTML → PDF: generuj Blade šablonou (`resources/views/pdf/death-notice.blade.php`) a pak `Browsershot::html($html)`.
-  - Obrázek → PDF (např. PS BK): stáhni obrázek pomocí `Http`, vytvoř dočasný soubor v `storage/app/temp`, zabal do HTML s `<img>` a převeď na PDF.
-- **PDF → JPG konverze** pomocí **Imagick**:
-  - Přímé použití Imagick pro konverzi PDF na JPG (bez PdfConverterService).
-  - Vždy nastav DPI 300 pro optimální OCR kvalitu: `$imagick->setResolution(300, 300)`.
-  - Čti pouze první stránku PDF: `$imagick->readImage($pdfPath.'[0]')`.
-  - Nastav formát JPEG: `$imagick->setImageFormat('jpeg')`.
-  - Nastav kvalitu komprese: `$imagick->setImageCompressionQuality(90)`.
-  - Po použití vždy zavolej `$imagick->clear()` a `$imagick->destroy()` pro uvolnění paměti.
-- OCR extrakce dat pomocí **Tesseract + Google Gemini AI + Anthropic Claude**:
-  - `GeminiService::extractFromImage()` – primární metoda pro OCR extrakci.
-  - Hybridní přístup: regex patterny → Gemini AI fallback → Anthropic Claude fallback při selhání.
-  - Gemini API klíč: konfigurován v `config/services.php` jako `services.gemini.api_key`.
-  - Anthropic API klíč: konfigurován v `config/services.php` jako `services.anthropic.api_key`.
-  - Free tier limit Gemini: 1500 requestů/den (resetuje se denně).
-  - Anthropic Claude slouží jako záložní řešení při vyčerpání Gemini kvóty.
-- **Jobs pro asynchronní zpracování** (Laravel Horizon):
-  - Všechny joby používají `ShouldQueue` interface.
-  - Retry logika: `$tries = 3`, `$backoff = 60`, `$timeout = 180`.
-  - `ExtractImageParteJob` → extrahuje jméno + datum pohřbu → dispatche `ExtractDeathDateJob`.
-  - `ExtractDeathDateJob` → extrahuje datum úmrtí → smaže temp soubor.
-- Dočasné soubory vždy po úspěšném zpracování smaž.
-- Neprováděj síťová volání v testech bez mocků (`Http::fake()` apod.).
-- Při stahování PDF ze zdrojových URL zachovej originální název souboru (např. `krzyžanková120251229_09470174.pdf`).
-
----
-
-## 6. Parsování dat pomocí Carbon
-
-- Pro parsování dat z textů VŽDY používej Carbon místo manuálního regex.
-- Nastav českou lokalizaci: `Carbon::setLocale('cs')` pro podporu českých názvů měsíců.
-- Pro české numerické datum (např. "2.1.2026", "31.12.2025") používej formát `j.n.Y` v `Carbon::createFromFormat()`.
-- Formát `j.n.Y` podporuje i mezery: "21. 12. 2025" → 2025-12-21.
-- Vždy obaluj parsování do `try/catch` a loguj selhání pomocí `Log::warning()`.
-- Příklad z `SadovyJanScraper::parseDate()`:
-  ```php
-  Carbon::setLocale('cs');
-  try {
-      return Carbon::createFromFormat('j.n.Y', $match[0])->format('Y-m-d');
-  } catch (\Exception $e) {
-      Log::warning("Failed to parse date: {$dateText}", ['error' => $e->getMessage()]);
-      return null;
-  }
-  ```
-
-### Priority regex patterns pro datum úmrtí
-
-V `GeminiService::parseParteText()` dodržuj prioritní pořadí:
-1. **Polské názvy měsíců** (nejvyšší priorita): "dnia 26 grudnia 2025 zmarła"
-2. **Numerická data s klíčovými slovy**: "zemřel dne 25.12.2025", "Zmarł w środę dnia 24.12.2025"
-3. **Fallback**: extrahuj všechna data, použij heuristiku
-
-Toto pořadí zabraňuje záměně data úmrtí a data pohřbu.
-
----
-
-## 7. Error handling a logování
-
-- Všechny operace, které mohou selhat (HTTP requesty, práce s Browsershotem, DB transakce), obaluj do `try/catch`.
-- Chyby loguj pomocí `Log::error()` nebo `Log::warning()` se srozumitelnou zprávou:
-  - zahrň informaci o zdroji (`$this->source`, URL),
-  - přidej text chyby (`{$e->getMessage()}`).
-- Nepoužívaj prázdné `catch` bloky – vždy loguj.
-- U artisan příkazů vracej smysluplné exit kódy (např. `Response::HTTP_OK`, `Response::HTTP_PARTIAL_CONTENT`, `Response::HTTP_UNPROCESSABLE_ENTITY`).
-
----
-
-## 8. Testování a TDD
-
-- Při přidávání nebo změně chování:
-  - nejprve přidej/aktualizuj test v `tests/Feature` nebo `tests/Unit`,
-  - používej Pest syntaxi (`test('description', function () { ... });`).
-- Pro scrapery preferuj testy s mockovaným HTTP (`Http::fake()`) místo reálných requestů.
-- Po větší změně spusť cílené testy (konkrétní soubor/`--filter`) a případně celý test suite.
-- Používej `RefreshDatabase` trait pro testy, které potřebují čistou DB.
-
----
-
-## 9. Git, nástroje a CI
-
-- Neprováděj změny Git konfigurace (uživatel, e-mail, hooky) bez výslovného pokynu.
-- Commity vytvářej pouze, pokud o to uživatel explicitně požádá.
-- Nikdy nepoužívej `--no-verify` nebo podobné přepínače k obejití hooků bez svolení.
-- Neprováděj force-push do sdílených větví, pokud o to uživatel výslovně neřekne.
-- NIKDY nezmiňuj AI asistenci v commit zprávách (např. "generated by Claude", "AI-assisted").
-
----
-
-## 10. Cursor / Copilot specifická pravidla
-
-- V tomto repozitáři aktuálně **nejsou** `.cursor/rules/` ani `.cursorrules`, ani `.github/copilot-instructions.md`.
-- Pokud budou v budoucnu přidány:
-  - vždy je přečti a respektuj,
-  - aktualizuj tento `AGENTS.md` tak, aby stručně shrnoval jejich pravidla (zejména commit message, styl kódu, zakázané patterny).
-
----
-
-## 11. Obecná pravidla pro agenty
-
-- Měň pouze to, co souvisí s aktuálním úkolem, nedělej plošné refaktoringy.
-- Zachovej konvenci a styl kódu okolních souborů.
-- Každou netriviální změnu popiš v závěrečném shrnutí pro uživatele.
-- Při nejasnostech raději polož doplňující dotaz, než aby ses odchýlil od zamýšleného chování aplikace.
-
-===
-
-===
-
-<laravel-boost-guidelines>
-=== foundation rules ===
-
-# Laravel Boost Guidelines
-
-The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to enhance the user's satisfaction building Laravel applications.
-
-## Foundational Context
-This application is a Laravel application and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
-
-- php - 8.4.16
-- laravel/framework (LARAVEL) - v12
-- laravel/horizon (HORIZON) - v5
-- laravel/prompts (PROMPTS) - v0
-- laravel/mcp (MCP) - v0
-- laravel/pint (PINT) - v1
-- laravel/sail (SAIL) - v1
-- pestphp/pest (PEST) - v4
-- phpunit/phpunit (PHPUNIT) - v12
-- tailwindcss (TAILWINDCSS) - v4
-
-## Conventions
-- You must follow all existing code conventions used in this application. When creating or editing a file, check sibling files for the correct structure, approach, naming.
-- Use descriptive names for variables and methods. For example, `isRegisteredForDiscounts`, not `discount()`.
-- Check for existing components to reuse before writing a new one.
-
-## Verification Scripts
-- Do not create verification scripts or tinker when tests cover that functionality and prove it works. Unit and feature tests are more important.
-
-## Application Structure & Architecture
-- Stick to existing directory structure - don't create new base folders without approval.
-- Do not change the application's dependencies without approval.
-
-## Frontend Bundling
-- If the user doesn't see a frontend change reflected in the UI, it could mean they need to run `npm run build`, `npm run dev`, or `composer run dev`. Ask them.
-
-## Replies
-- Be concise in your explanations - focus on what's important rather than explaining obvious details.
-
-## Documentation Files
-- You must only create documentation files if explicitly requested by the user.
-
-
-=== boost rules ===
-
-## Laravel Boost
-- Laravel Boost is an MCP server that comes with powerful tools designed specifically for this application. Use them.
-
-## Artisan
-- Use the `list-artisan-commands` tool when you need to call an Artisan command to double check the available parameters.
-
-## URLs
-- Whenever you share a project URL with the user you should use the `get-absolute-url` tool to ensure you're using the correct scheme, domain / IP, and port.
-
-## Tinker / Debugging
-- You should use the `tinker` tool when you need to execute PHP to debug code or query Eloquent models directly.
-- Use the `database-query` tool when you only need to read from the database.
-
-## Reading Browser Logs With the `browser-logs` Tool
-- You can read browser logs, errors, and exceptions using the `browser-logs` tool from Boost.
-- Only recent browser logs will be useful - ignore old logs.
-
-## Searching Documentation (Critically Important)
-- Boost comes with a powerful `search-docs` tool you should use before any other approaches. This tool automatically passes a list of installed packages and their versions to the remote Boost API, so it returns only version-specific documentation specific for the user's circumstance. You should pass an array of packages to filter on if you know you need docs for particular packages.
-- The 'search-docs' tool is perfect for all Laravel related packages, including Laravel, Inertia, Livewire, Filament, Tailwind, Pest, Nova, Nightwatch, etc.
-- You must use this tool to search for Laravel-ecosystem documentation before falling back to other approaches.
-- Search the documentation before making code changes to ensure we are taking the correct approach.
-- Use multiple, broad, simple, topic based queries to start. For example: `['rate limiting', 'routing rate limiting', 'routing']`.
-- Do not add package names to queries - package information is already shared. For example, use `test resource table`, not `filament 4 test resource table`.
-
-### Available Search Syntax
-- You can and should pass multiple queries at once. The most relevant results will be returned first.
-
-1. Simple Word Searches with auto-stemming - query=authentication - finds 'authenticate' and 'auth'
-2. Multiple Words (AND Logic) - query=rate limit - finds knowledge containing both "rate" AND "limit"
-3. Quoted Phrases (Exact Position) - query="infinite scroll" - Words must be adjacent and in that order
-4. Mixed Queries - query=middleware "rate limit" - "middleware" AND exact phrase "rate limit"
-5. Multiple Queries - queries=["authentication", "middleware"] - ANY of these terms
-
-
-=== php rules ===
-
-## PHP
-
-- Always use curly braces for control structures, even if it has one line.
-
-### Constructors
-- Use PHP 8 constructor property promotion in `__construct()`.
-    - <code-snippet>public function __construct(public GitHub $github) { }</code-snippet>
-- Do not allow empty `__construct()` methods with zero parameters.
-
-### Type Declarations
-- Always use explicit return type declarations for methods and functions.
-- Use appropriate PHP type hints for method parameters.
-
-<code-snippet name="Explicit Return Types and Method Params" lang="php">
-protected function isAccessible(User $user, ?string $path = null): bool
+### Example
+```php
+public function downloadNotices(?array $sources = null): array
 {
-    ...
+    // ...
 }
-</code-snippet>
+```
 
-## Comments
-- Prefer PHPDoc blocks over comments. Never use comments within the code itself unless there is something _very_ complex going on.
+---
 
-## PHPDoc Blocks
-- Add useful array shape type definitions for arrays when appropriate.
+## 4. Domain-Specific Rules
 
-## Enums
-- Typically, keys in an Enum should be TitleCase. For example: `FavoritePerson`, `BestLake`, `Monthly`.
+### Death Notice Hash
+- **Field:** `full_name` (single field, not split into first/last)
+- **Hash:** First 12 chars of `sha256(full_name + funeral_date + source_url)`
+- **DB:** `string('hash', 12)->unique()->index()`
+- Always check hash existence before insert to prevent duplicates
 
+### Date Parsing (Carbon)
+```php
+Carbon::setLocale('cs');  // Czech locale for month names
+try {
+    return Carbon::createFromFormat('j.n.Y', $dateText)->format('Y-m-d');  // Handles "2.1.2026" and "21. 12. 2025"
+} catch (\Exception $e) {
+    Log::warning("Failed to parse date: {$dateText}", ['error' => $e->getMessage()]);
+    return null;
+}
+```
 
-=== tests rules ===
+**Regex Priority (in `GeminiService::parseParteText()`):**
+1. Polish month names: "dnia 26 grudnia 2025 zmarła"
+2. Numeric dates with keywords: "zemřel dne 25.12.2025"
+3. Fallback: extract all dates, use heuristics
 
-## Test Enforcement
+---
 
-- Every change must be programmatically tested. Write a new test or update an existing test, then run the affected tests to make sure they pass.
-- Run the minimum number of tests needed to ensure code quality and speed. Use `php artisan test` with a specific filename or filter.
+## 5. Media & External Services
 
+### PDF Handling
+- **Media Library:** Spatie Media Library with custom `HashPathGenerator`
+- **Storage:** `storage/app/parte/{hash}/`
+- **PDF Generation:** Spatie Browsershot (`Browsershot::html($html)->pdf()`)
 
-=== laravel/core rules ===
+### PDF → JPG Conversion (Imagick)
+```php
+$imagick = new Imagick();
+$imagick->setResolution(300, 300);        // DPI 300 for OCR quality
+$imagick->readImage($pdfPath.'[0]');      // Read first page only
+$imagick->setImageFormat('jpeg');
+$imagick->setImageCompressionQuality(90);
+$imagick->writeImage($jpgPath);
+$imagick->clear();                         // Always cleanup
+$imagick->destroy();
+```
 
-## Do Things the Laravel Way
+### OCR & AI Extraction
+- **Flow:** Tesseract OCR → Gemini AI → Anthropic Claude (fallback)
+- **APIs:** `config('services.gemini.api_key')`, `config('services.anthropic.api_key')`
+- **Limits:** Gemini free tier 1500 req/day
+- Always delete temp files after successful processing
 
-- Use `php artisan make:` commands to create new files (i.e. migrations, controllers, models, etc.). You can list available Artisan commands using the `list-artisan-commands` tool.
-- If you're creating a generic PHP class, use `php artisan make:class`.
-- Pass `--no-interaction` to all Artisan commands to ensure they work without user input. You should also pass the correct `--options` to ensure correct behavior.
+### Queue Jobs (Horizon/Redis)
+- All jobs implement `ShouldQueue`
+- Retry logic: `$tries = 3`, `$backoff = 60`, `$timeout = 180`
+- **CRITICAL:** `QUEUE_CONNECTION=redis` (NOT database) for Horizon compatibility
 
-### Database
-- Always use proper Eloquent relationship methods with return type hints. Prefer relationship methods over raw queries or manual joins.
-- Use Eloquent models and relationships before suggesting raw database queries
-- Avoid `DB::`; prefer `Model::query()`. Generate code that leverages Laravel's ORM capabilities rather than bypassing them.
-- Generate code that prevents N+1 query problems by using eager loading.
-- Use Laravel's query builder for very complex database operations.
+---
 
-### Model Creation
-- When creating new models, create useful factories and seeders for them too. Ask the user if they need any other things, using `list-artisan-commands` to check the available options to `php artisan make:model`.
+## 6. Error Handling
 
-### APIs & Eloquent Resources
-- For APIs, default to using Eloquent API Resources and API versioning unless existing API routes do not, then you should follow existing application convention.
+- Wrap risky operations in `try/catch` (HTTP, Browsershot, DB transactions)
+- Log errors: `Log::error()` or `Log::warning()` with context
+- Never use empty `catch` blocks
+- Return meaningful exit codes from artisan commands
 
-### Controllers & Validation
-- Always create Form Request classes for validation rather than inline validation in controllers. Include both validation rules and custom error messages.
-- Check sibling Form Requests to see if the application uses array or string based validation rules.
+---
 
-### Queues
-- Use queued jobs for time-consuming operations with the `ShouldQueue` interface.
+## 7. Testing (Pest)
 
-### Authentication & Authorization
-- Use Laravel's built-in authentication and authorization features (gates, policies, Sanctum, etc.).
+### Writing Tests
+```php
+test('death notice can be created with valid data', function () {
+    $notice = DeathNotice::factory()->create();
+    expect($notice)->toBeInstanceOf(DeathNotice::class);
+});
+```
 
-### URL Generation
-- When generating links to other pages, prefer named routes and the `route()` function.
+### Best Practices
+- Use `Http::fake()` for scrapers (no real HTTP requests)
+- Use `RefreshDatabase` trait for clean DB state
+- Test happy paths, failure paths, edge cases
+- Run tests after every change: `./vendor/bin/pest --filter="test name"`
 
-### Configuration
-- Use environment variables only in configuration files - never use the `env()` function directly outside of config files. Always use `config('app.name')`, not `env('APP_NAME')`.
+---
 
-### Testing
-- When creating models for tests, use the factories for the models. Check if the factory has custom states that can be used before manually setting up the model.
-- Faker: Use methods such as `$this->faker->word()` or `fake()->randomDigit()`. Follow existing conventions whether to use `$this->faker` or `fake()`.
-- When creating tests, make use of `php artisan make:test [options] {name}` to create a feature test, and pass `--unit` to create a unit test. Most tests should be feature tests.
+## 8. Git Workflow
 
-### Vite Error
-- If you receive an "Illuminate\Foundation\ViteException: Unable to locate file in Vite manifest" error, you can run `npm run build` or ask the user to run `npm run dev` or `composer run dev`.
+- **Commits:** Only create when user explicitly requests
+- **Hooks:** Never use `--no-verify` without permission
+- **Force Push:** Never to main/master without explicit approval
+- **Commit Messages:** NEVER mention AI assistance ("generated by Claude", etc.)
 
+---
 
-=== laravel/v12 rules ===
-
-## Laravel 12
-
-- Use the `search-docs` tool to get version specific documentation.
-- Since Laravel 11, Laravel has a new streamlined file structure which this project uses.
+## 9. Laravel-Specific Guidelines
 
 ### Laravel 12 Structure
-- No middleware files in `app/Http/Middleware/`.
-- `bootstrap/app.php` is the file to register middleware, exceptions, and routing files.
-- `bootstrap/providers.php` contains application specific service providers.
-- **No app\Console\Kernel.php** - use `bootstrap/app.php` or `routes/console.php` for console configuration.
-- **Commands auto-register** - files in `app/Console/Commands/` are automatically available and do not require manual registration.
+- No `app/Http/Middleware/` - register in `bootstrap/app.php`
+- Commands auto-register from `app/Console/Commands/`
+- Use `php artisan make:` for new files
 
-### Database
-- When modifying a column, the migration must include all of the attributes that were previously defined on the column. Otherwise, they will be dropped and lost.
-- Laravel 11 allows limiting eagerly loaded records natively, without external packages: `$query->latest()->limit(10);`.
+### Best Practices
+- Use Eloquent over raw queries (`Model::query()`, not `DB::`)
+- Eager load to prevent N+1 queries
+- Use `config('app.name')`, NOT `env('APP_NAME')` (except in config files)
+- Form Requests for validation, not inline in controllers
+- Named routes: `route('name')` over hardcoded URLs
 
-### Models
-- Casts can and likely should be set in a `casts()` method on a model rather than the `$casts` property. Follow existing conventions from other models.
+---
 
+## 10. General Rules for Agents
 
-=== pint/core rules ===
+- **Scope:** Change only what's needed for the task - no blanket refactors
+- **Consistency:** Match existing code style and conventions
+- **Communication:** Explain non-trivial changes in summary
+- **Uncertainty:** Ask clarifying questions rather than guessing
 
-## Laravel Pint Code Formatter
+---
 
-- You must run `vendor/bin/pint --dirty` before finalizing changes to ensure your code matches the project's expected style.
-- Do not run `vendor/bin/pint --test`, simply run `vendor/bin/pint` to fix any formatting issues.
-
-
-=== pest/core rules ===
-
-## Pest
-### Testing
-- If you need to verify a feature is working, write or update a Unit / Feature test.
-
-### Pest Tests
-- All tests must be written using Pest. Use `php artisan make:test --pest {name}`.
-- You must not remove any tests or test files from the tests directory without approval. These are not temporary or helper files - these are core to the application.
-- Tests should test all of the happy paths, failure paths, and weird paths.
-- Tests live in the `tests/Feature` and `tests/Unit` directories.
-- Pest tests look and behave like this:
-<code-snippet name="Basic Pest Test Example" lang="php">
-it('is true', function () {
-    expect(true)->toBeTrue();
-});
-</code-snippet>
-
-### Running Tests
-- Run the minimal number of tests using an appropriate filter before finalizing code edits.
-- To run all tests: `php artisan test`.
-- To run all tests in a file: `php artisan test tests/Feature/ExampleTest.php`.
-- To filter on a particular test name: `php artisan test --filter=testName` (recommended after making a change to a related file).
-- When the tests relating to your changes are passing, ask the user if they would like to run the entire test suite to ensure everything is still passing.
-
-### Pest Assertions
-- When asserting status codes on a response, use the specific method like `assertForbidden` and `assertNotFound` instead of using `assertStatus(403)` or similar, e.g.:
-<code-snippet name="Pest Example Asserting postJson Response" lang="php">
-it('returns all', function () {
-    $response = $this->postJson('/api/docs', []);
-
-    $response->assertSuccessful();
-});
-</code-snippet>
-
-### Mocking
-- Mocking can be very helpful when appropriate.
-- When mocking, you can use the `Pest\Laravel\mock` Pest function, but always import it via `use function Pest\Laravel\mock;` before using it. Alternatively, you can use `$this->mock()` if existing tests do.
-- You can also create partial mocks using the same import or self method.
-
-### Datasets
-- Use datasets in Pest to simplify tests which have a lot of duplicated data. This is often the case when testing validation rules, so consider going with this solution when writing tests for validation rules.
-
-<code-snippet name="Pest Dataset Example" lang="php">
-it('has emails', function (string $email) {
-    expect($email)->not->toBeEmpty();
-})->with([
-    'james' => 'james@laravel.com',
-    'taylor' => 'taylor@laravel.com',
-]);
-</code-snippet>
-
-
-=== pest/v4 rules ===
-
-## Pest 4
-
-- Pest v4 is a huge upgrade to Pest and offers: browser testing, smoke testing, visual regression testing, test sharding, and faster type coverage.
-- Browser testing is incredibly powerful and useful for this project.
-- Browser tests should live in `tests/Browser/`.
-- Use the `search-docs` tool for detailed guidance on utilizing these features.
-
-### Browser Testing
-- You can use Laravel features like `Event::fake()`, `assertAuthenticated()`, and model factories within Pest v4 browser tests, as well as `RefreshDatabase` (when needed) to ensure a clean state for each test.
-- Interact with the page (click, type, scroll, select, submit, drag-and-drop, touch gestures, etc.) when appropriate to complete the test.
-- If requested, test on multiple browsers (Chrome, Firefox, Safari).
-- If requested, test on different devices and viewports (like iPhone 14 Pro, tablets, or custom breakpoints).
-- Switch color schemes (light/dark mode) when appropriate.
-- Take screenshots or pause tests for debugging when appropriate.
-
-### Example Tests
-
-<code-snippet name="Pest Browser Test Example" lang="php">
-it('may reset the password', function () {
-    Notification::fake();
-
-    $this->actingAs(User::factory()->create());
-
-    $page = visit('/sign-in'); // Visit on a real browser...
-
-    $page->assertSee('Sign In')
-        ->assertNoJavascriptErrors() // or ->assertNoConsoleLogs()
-        ->click('Forgot Password?')
-        ->fill('email', 'nuno@laravel.com')
-        ->click('Send Reset Link')
-        ->assertSee('We have emailed your password reset link!')
-
-    Notification::assertSent(ResetPassword::class);
-});
-</code-snippet>
-
-<code-snippet name="Pest Smoke Testing Example" lang="php">
-$pages = visit(['/', '/about', '/contact']);
-
-$pages->assertNoJavascriptErrors()->assertNoConsoleLogs();
-</code-snippet>
-
-
-=== tailwindcss/core rules ===
-
-## Tailwind Core
-
-- Use Tailwind CSS classes to style HTML, check and use existing tailwind conventions within the project before writing your own.
-- Offer to extract repeated patterns into components that match the project's conventions (i.e. Blade, JSX, Vue, etc..)
-- Think through class placement, order, priority, and defaults - remove redundant classes, add classes to parent or child carefully to limit repetition, group elements logically
-- You can use the `search-docs` tool to get exact examples from the official documentation when needed.
-
-### Spacing
-- When listing items, use gap utilities for spacing, don't use margins.
-
-    <code-snippet name="Valid Flex Gap Spacing Example" lang="html">
-        <div class="flex gap-8">
-            <div>Superior</div>
-            <div>Michigan</div>
-            <div>Erie</div>
-        </div>
-    </code-snippet>
-
-
-### Dark Mode
-- If existing pages and components support dark mode, new pages and components must support dark mode in a similar way, typically using `dark:`.
-
-
-=== tailwindcss/v4 rules ===
-
-## Tailwind 4
-
-- Always use Tailwind CSS v4 - do not use the deprecated utilities.
-- `corePlugins` is not supported in Tailwind v4.
-- In Tailwind v4, configuration is CSS-first using the `@theme` directive — no separate `tailwind.config.js` file is needed.
-<code-snippet name="Extending Theme in CSS" lang="css">
-@theme {
-  --color-brand: oklch(0.72 0.11 178);
-}
-</code-snippet>
-
-- In Tailwind v4, you import Tailwind using a regular CSS `@import` statement, not using the `@tailwind` directives used in v3:
-
-<code-snippet name="Tailwind v4 Import Tailwind Diff" lang="diff">
-   - @tailwind base;
-   - @tailwind components;
-   - @tailwind utilities;
-   + @import "tailwindcss";
-</code-snippet>
-
-
-### Replaced Utilities
-- Tailwind v4 removed deprecated utilities. Do not use the deprecated option - use the replacement.
-- Opacity values are still numeric.
-
-| Deprecated |	Replacement |
-|------------+--------------|
-| bg-opacity-* | bg-black/* |
-| text-opacity-* | text-black/* |
-| border-opacity-* | border-black/* |
-| divide-opacity-* | divide-black/* |
-| ring-opacity-* | ring-black/* |
-| placeholder-opacity-* | placeholder-black/* |
-| flex-shrink-* | shrink-* |
-| flex-grow-* | grow-* |
-| overflow-ellipsis | text-ellipsis |
-| decoration-slice | box-decoration-slice |
-| decoration-clone | box-decoration-clone |
-</laravel-boost-guidelines>
+**This AGENTS.md has priority over generic Laravel SaaS instructions in `ai/` directory.**
