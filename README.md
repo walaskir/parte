@@ -100,6 +100,9 @@ ZHIPUAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 ANTHROPIC_API_KEY=your-anthropic-api-key
 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 ANTHROPIC_MAX_TOKENS=2048
+
+# Portrait extraction (set to false to disable)
+PARTE_EXTRACT_PORTRAITS=true
 ```
 
 4. **Upravte Deploy Script** v Forge:

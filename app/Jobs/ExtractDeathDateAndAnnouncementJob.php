@@ -100,8 +100,8 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                 ]);
             }
 
-            // Extract portrait if photo detected
-            if (! empty($ocrData['has_photo']) && ! empty($ocrData['photo_bbox'])) {
+            // Extract portrait if photo detected and portrait extraction is enabled
+            if (config('services.parte.extract_portraits', true) && ! empty($ocrData['has_photo']) && ! empty($ocrData['photo_bbox'])) {
                 $this->extractAndSavePortrait($ocrData['photo_bbox'], $ocrData['photo_description'] ?? null);
             }
 

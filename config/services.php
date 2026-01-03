@@ -48,4 +48,8 @@ return [
         'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
     ],
 
+    'parte' => [
+        'extract_portraits' => env('EXTRACT_PORTRAITS', true),
+    ],
+
 ];
