@@ -35,7 +35,8 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
      */
     public function __construct(
         public DeathNotice $deathNotice,
-        public string $imagePath
+        public string $imagePath,
+        public bool $portraitsOnly = false
     ) {
         $this->onQueue('extraction');
     }
@@ -61,29 +62,41 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
             // Extract ONLY death_date
             $ocrData = $visionOcrService->extractFromImage($this->imagePath, extractDeathDate: true);
 
-            // Update death_date, announcement_text, and has_photo (keep existing full_name and funeral_date)
-            $updateData = [];
-            if (isset($ocrData['death_date']) && $ocrData['death_date']) {
-                $updateData['death_date'] = $ocrData['death_date'];
-            }
-            if (isset($ocrData['announcement_text']) && $ocrData['announcement_text']) {
-                $updateData['announcement_text'] = $ocrData['announcement_text'];
-            }
-            if (isset($ocrData['has_photo'])) {
-                $updateData['has_photo'] = (bool) $ocrData['has_photo'];
-            }
+            // Extract text data ONLY if NOT portraits-only mode
+            if (! $this->portraitsOnly) {
+                // Update death_date, announcement_text, and has_photo (keep existing full_name and funeral_date)
+                $updateData = [];
+                if (isset($ocrData['death_date']) && $ocrData['death_date']) {
+                    $updateData['death_date'] = $ocrData['death_date'];
+                }
+                if (isset($ocrData['announcement_text']) && $ocrData['announcement_text']) {
+                    $updateData['announcement_text'] = $ocrData['announcement_text'];
+                }
+                if (isset($ocrData['has_photo'])) {
+                    $updateData['has_photo'] = (bool) $ocrData['has_photo'];
+                }
 
-            if (! empty($updateData)) {
-                $this->deathNotice->update($updateData);
+                if (! empty($updateData)) {
+                    $this->deathNotice->update($updateData);
 
-                Log::info("Successfully extracted death_date and announcement_text for DeathNotice {$this->deathNotice->hash}", [
-                    'death_date' => $ocrData['death_date'] ?? null,
-                    'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
-                    'has_photo' => $ocrData['has_photo'] ?? false,
-                ]);
+                    Log::info("Successfully extracted death_date and announcement_text for DeathNotice {$this->deathNotice->hash}", [
+                        'death_date' => $ocrData['death_date'] ?? null,
+                        'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
+                        'has_photo' => $ocrData['has_photo'] ?? false,
+                    ]);
+                } else {
+                    Log::warning("No death_date found in OCR data for DeathNotice {$this->deathNotice->hash}", [
+                        'attempt' => $this->attempts(),
+                    ]);
+                }
             } else {
-                Log::warning("No death_date found in OCR data for DeathNotice {$this->deathNotice->hash}", [
-                    'attempt' => $this->attempts(),
+                // Portraits-only mode: only update has_photo flag
+                $this->deathNotice->update([
+                    'has_photo' => (bool) ($ocrData['has_photo'] ?? false),
+                ]);
+
+                Log::info("Portraits-only mode: skipped text extraction for DeathNotice {$this->deathNotice->hash}", [
+                    'has_photo' => $ocrData['has_photo'] ?? false,
                 ]);
             }
 
@@ -123,6 +136,19 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
     private function extractAndSavePortrait(array $bbox, ?string $description): void
     {
         try {
+            // Check if portrait already exists
+            $existingPortrait = $this->deathNotice->getFirstMedia('portrait');
+
+            if ($existingPortrait) {
+                Log::info('Replacing existing portrait', [
+                    'notice_hash' => $this->deathNotice->hash,
+                    'old_portrait' => $existingPortrait->file_name,
+                ]);
+
+                // Delete old portrait (Spatie will handle this automatically with singleFile)
+                $existingPortrait->delete();
+            }
+
             $portraitService = app(PortraitExtractionService::class);
 
             // Extract portrait from parte image

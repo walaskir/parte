@@ -27,6 +27,12 @@ php artisan key:generate && php artisan migrate
 ```
 **ALWAYS run Pint before finalizing changes.**
 
+### Re-extract Portraits
+```bash
+php artisan parte:process-existing --extract-portraits         # Only missing portraits
+php artisan parte:process-existing --extract-portraits --force # Re-extract ALL
+```
+
 ---
 
 ## 2. Project Structure & Domain
@@ -41,7 +47,7 @@ php artisan key:generate && php artisan migrate
 - `app/Jobs/ExtractImageParteJob.php` - Extract name + funeral date + announcement_text from images (queue: extraction)
 - `app/Jobs/ExtractDeathDateAndAnnouncementJob.php` - Extract death date + announcement_text (queue: extraction)
 - `app/Console/Commands/DownloadDeathNotices.php` - `php artisan parte:download`
-- `app/Console/Commands/ProcessExistingPartesCommand.php` - `php artisan parte:process-existing`
+- `app/Console/Commands/ProcessExistingPartesCommand.php` - `php artisan parte:process-existing [--extract-portraits] [--force]`
 
 **Don't add new subsystems without explicit approval.**
 

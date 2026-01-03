@@ -5,21 +5,37 @@ namespace App\Console\Commands;
 use App\Jobs\ExtractDeathDateAndAnnouncementJob;
 use App\Models\DeathNotice;
 use Illuminate\Console\Command;
+use Imagick;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 
 class ProcessExistingPartesCommand extends Command
 {
     protected $signature = 'parte:process-existing
         {--missing-death-date : Only process records missing death_date}
-        {--missing-announcement-text : Only process records missing announcement_text}';
+        {--missing-announcement-text : Only process records missing announcement_text}
+        {--extract-portraits : Extract portraits from all parte without photos}
+        {--force : Force re-extraction even if data already exists}';
 
-    protected $description = 'Process existing parte records to extract death date and announcement text from PDFs';
+    protected $description = 'Process existing parte records to extract death date, announcement text, or portraits from PDFs';
 
     public function handle(): int
     {
         $query = DeathNotice::query();
 
-        if ($this->option('missing-death-date') || $this->option('missing-announcement-text')) {
+        if ($this->option('extract-portraits')) {
+            if ($this->option('force')) {
+                // FORCE: Re-extract ALL portraits
+                $query->whereNotNull('id'); // All records
+                $this->warn('⚠️  FORCE mode: Re-extracting portraits from ALL parte (including existing)...');
+            } else {
+                // NORMAL: Only parte without photos
+                $query->where(function ($query) {
+                    $query->where('has_photo', false)
+                        ->orWhereNull('has_photo');
+                });
+                $this->info('Extracting portraits from parte without photos...');
+            }
+        } elseif ($this->option('missing-death-date') || $this->option('missing-announcement-text')) {
             $query->where(function ($q) {
                 if ($this->option('missing-death-date')) {
                     $q->orWhereNull('death_date');
@@ -28,11 +44,21 @@ class ProcessExistingPartesCommand extends Command
                     $q->orWhereNull('announcement_text');
                 }
             });
+
+            if ($this->option('force')) {
+                $this->warn('⚠️  FORCE mode: Re-extracting from ALL parte (ignoring existing data)...');
+                $query = DeathNotice::query()->whereNotNull('id');
+            }
         } else {
             // No options = process records missing either death_date OR announcement_text
-            $query->where(function ($q) {
-                $q->whereNull('death_date')->orWhereNull('announcement_text');
-            });
+            if ($this->option('force')) {
+                $query->whereNotNull('id'); // All records
+                $this->warn('⚠️  FORCE mode: Re-extracting ALL data from ALL parte...');
+            } else {
+                $query->where(function ($q) {
+                    $q->whereNull('death_date')->orWhereNull('announcement_text');
+                });
+            }
         }
 
         $notices = $query->get();
@@ -97,7 +123,11 @@ class ProcessExistingPartesCommand extends Command
                 }
 
                 // Dispatch OCR job
-                ExtractDeathDateAndAnnouncementJob::dispatch($notice, $tempImagePath);
+                ExtractDeathDateAndAnnouncementJob::dispatch(
+                    $notice,
+                    $tempImagePath,
+                    $this->option('extract-portraits') // Pass portraitsOnly flag
+                );
                 $processed++;
             } catch (\Exception $e) {
                 $this->error("Failed to process notice {$notice->hash}: {$e->getMessage()}");

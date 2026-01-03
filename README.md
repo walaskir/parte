@@ -225,6 +225,18 @@ php artisan parte:process-existing --missing-death-date
 php artisan parte:process-existing --source="Sadový Jan"
 ```
 
+### Extrakce portrétů z existujících parte
+
+```bash
+# Extrahovat portréty z parte bez fotografií
+php artisan parte:process-existing --extract-portraits
+
+# Znovu extrahovat VŠECHNY portréty (včetně existujících)
+php artisan parte:process-existing --extract-portraits --force
+```
+
+Tato volba extrahuje **pouze portréty** bez úpravy existujících textových dat.
+
 ### Monitoring queue jobů
 
 ```bash

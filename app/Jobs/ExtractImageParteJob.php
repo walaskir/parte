@@ -91,7 +91,7 @@ class ExtractImageParteJob implements ShouldQueue
             }
 
             // Dispatch death_date extraction job (step 2)
-            ExtractDeathDateAndAnnouncementJob::dispatch($this->deathNotice, $this->imagePath);
+            ExtractDeathDateAndAnnouncementJob::dispatch($this->deathNotice, $this->imagePath, false);
 
             Log::info("Dispatched ExtractDeathDateAndAnnouncementJob for DeathNotice {$this->deathNotice->hash}");
         } catch (\Exception $e) {
@@ -126,6 +126,16 @@ class ExtractImageParteJob implements ShouldQueue
             $portraitPath = $portraitService->extractPortrait($this->imagePath, $bbox);
 
             if ($portraitPath && file_exists($portraitPath)) {
+                // Check if portrait already exists and delete it
+                $existingPortrait = $this->deathNotice->getFirstMedia('portrait');
+                if ($existingPortrait) {
+                    Log::info("Deleting existing portrait before adding new one for DeathNotice {$this->deathNotice->hash}", [
+                        'existing_portrait_id' => $existingPortrait->id,
+                        'existing_portrait_path' => $existingPortrait->getPath(),
+                    ]);
+                    $existingPortrait->delete();
+                }
+
                 // Save to media library
                 $this->deathNotice
                     ->addMedia($portraitPath)
