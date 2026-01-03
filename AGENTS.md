@@ -114,6 +114,10 @@ $imagick->destroy();
 - **Fallback API:** `config('services.anthropic.api_key')`
 - **Fallback Model:** `claude-3-5-sonnet-20241022` (paid account)
 - **Prompt:** Extracts complete announcement WITH funeral details, fixes OCR errors
+- **Photo Detection:** AI detects portrait photos, returns bounding box coordinates as percentages
+- **Portrait Extraction:** Automated cropping via `PortraitExtractionService` using Imagick
+- **Portrait Storage:** Saved separately to 'portrait' media collection (max 400x400px JPEG, quality 85)
+- **Non-Critical:** Portrait extraction failures don't fail the entire job (logged as warnings)
 - **Timeout:** Job timeout 300s (5 minutes)
 - **Sequential Processing:** Jobs run one at a time on `extraction` queue (maxJobs=1)
 - Always delete temp files after successful processing

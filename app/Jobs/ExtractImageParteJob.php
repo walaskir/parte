@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\DeathNotice;
+use App\Services\PortraitExtractionService;
 use App\Services\VisionOcrService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -69,18 +70,25 @@ class ExtractImageParteJob implements ShouldQueue
                 throw new \Exception('Image extraction returned no valid name');
             }
 
-            // Update full_name, funeral_date, and announcement_text
+            // Update full_name, funeral_date, announcement_text, and has_photo
             $this->deathNotice->update([
                 'full_name' => $ocrData['full_name'],
                 'funeral_date' => $ocrData['funeral_date'] ?? $this->deathNotice->funeral_date,
                 'announcement_text' => $ocrData['announcement_text'] ?? null,
+                'has_photo' => isset($ocrData['has_photo']) ? (bool) $ocrData['has_photo'] : false,
             ]);
 
             Log::info("Successfully extracted name, funeral_date, and announcement_text for DeathNotice {$this->deathNotice->hash}", [
                 'full_name' => $ocrData['full_name'],
                 'funeral_date' => $ocrData['funeral_date'],
                 'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
+                'has_photo' => $ocrData['has_photo'] ?? false,
             ]);
+
+            // Extract portrait if photo detected
+            if (! empty($ocrData['has_photo']) && ! empty($ocrData['photo_bbox'])) {
+                $this->extractAndSavePortrait($ocrData['photo_bbox'], $ocrData['photo_description'] ?? null);
+            }
 
             // Dispatch death_date extraction job (step 2)
             ExtractDeathDateAndAnnouncementJob::dispatch($this->deathNotice, $this->imagePath);
@@ -103,6 +111,44 @@ class ExtractImageParteJob implements ShouldQueue
 
             // Rethrow to trigger retry mechanism
             throw $e;
+        }
+    }
+
+    /**
+     * Extract and save portrait photograph from parte image.
+     */
+    private function extractAndSavePortrait(array $bbox, ?string $description): void
+    {
+        try {
+            $portraitService = app(PortraitExtractionService::class);
+
+            // Extract portrait from parte image
+            $portraitPath = $portraitService->extractPortrait($this->imagePath, $bbox);
+
+            if ($portraitPath && file_exists($portraitPath)) {
+                // Save to media library
+                $this->deathNotice
+                    ->addMedia($portraitPath)
+                    ->withCustomProperties([
+                        'description' => $description,
+                        'extracted_at' => now()->toIso8601String(),
+                    ])
+                    ->toMediaCollection('portrait');
+
+                // Cleanup temp file
+                @unlink($portraitPath);
+
+                Log::info("Portrait extracted successfully for DeathNotice {$this->deathNotice->hash}", [
+                    'bbox' => $bbox,
+                    'description' => $description,
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Don't fail the entire job if portrait extraction fails (non-critical)
+            Log::warning("Portrait extraction failed (non-critical) for DeathNotice {$this->deathNotice->hash}", [
+                'error' => $e->getMessage(),
+                'bbox' => $bbox,
+            ]);
         }
     }
 

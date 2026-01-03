@@ -81,6 +81,24 @@ Podle čl. 27 Preambule GDPR:
    - Autor: pohřební služba nebo rodina zemřelého
    - Ochrana: 70 let po smrti autora (u fotografií)
 
+### 2.1a VAROVÁNÍ: Extrakce fotografií
+
+⚠️ **NOVÉ RIZIKO:** Systém nyní automaticky extrahuje fotografie zemřelých z parte dokumentů
+
+**PRÁVNÍ RIZIKA:**
+- Fotografie jsou autorská díla (§ 2 autorského zákona)
+- Fotografové mají autorská práva (pokud nejsou převedena na pohřební službu)
+- Pozůstalí mají osobnostní práva k podobizně zemřelého (§ 84 občanského zákoníku)
+- Veřejné zobrazení fotografií může vyžadovat souhlas pozůstalých nebo autora fotografie
+- Ořezání a úprava fotografie = vytvoření odvozených děl (§ 2 odst. 5)
+
+**DOPORUČENÍ:**
+- ⚠️ **KRITICKÉ:** Konzultovat s právníkem před veřejným zobrazením fotografií
+- Zvážit pouze archivační účely bez veřejného URL přístupu
+- Omezit přístup pouze na autorizované uživatele
+- Implementovat mechanismus pro žádosti pozůstalých o odstranění fotografií
+- Zvážit watermark "Pro archivační účely" na extraovaných fotografiích
+
 2. **Co aplikace dělá:**
    - Stahuje PDF parte (= rozmnožování díla)
    - Ukládá a archivuje (= rozmnožování a sdělování veřejnosti)

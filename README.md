@@ -290,6 +290,18 @@ ANTHROPIC_MAX_TOKENS=2048
    - Vysoká přesnost
    - Timeout 90s
 
+### Portrait Extraction (Extrakce fotografií)
+
+Systém automaticky detekuje a extrahuje portréty zemřelých z parte dokumentů:
+
+- **Detekce:** ZhipuAI GLM-4V identifikuje fotografie a jejich pozici (bounding box jako procenta)
+- **Extrakce:** Automatické ořezání pomocí Imagick
+- **Úložiště:** Samostatně uloženo jako JPEG (max 400x400px, kvalita 85)
+- **Přístup:** `$deathNotice->getFirstMediaUrl('portrait')`
+- **Non-Critical:** Selhání extrakce portrétu nezpůsobí selhání celého jobu (pouze varování v logu)
+
+Portréty jsou uloženy v samostatné media collection `portrait` odděleně od PDF dokumentů.
+
 ### Sekvenční zpracování
 
 Extrakční joby běží **postupně (jeden po druhém)** na dedikované `extraction` frontě s `maxJobs=1` konfigurací v Horizon. Toto zajišťuje stabilní zpracování a prevenci rate limitů.

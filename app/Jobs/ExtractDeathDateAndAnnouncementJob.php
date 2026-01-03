@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\DeathNotice;
+use App\Services\PortraitExtractionService;
 use App\Services\VisionOcrService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -60,13 +61,16 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
             // Extract ONLY death_date
             $ocrData = $visionOcrService->extractFromImage($this->imagePath, extractDeathDate: true);
 
-            // Update death_date and announcement_text (keep existing full_name and funeral_date)
+            // Update death_date, announcement_text, and has_photo (keep existing full_name and funeral_date)
             $updateData = [];
             if (isset($ocrData['death_date']) && $ocrData['death_date']) {
                 $updateData['death_date'] = $ocrData['death_date'];
             }
             if (isset($ocrData['announcement_text']) && $ocrData['announcement_text']) {
                 $updateData['announcement_text'] = $ocrData['announcement_text'];
+            }
+            if (isset($ocrData['has_photo'])) {
+                $updateData['has_photo'] = (bool) $ocrData['has_photo'];
             }
 
             if (! empty($updateData)) {
@@ -75,11 +79,17 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                 Log::info("Successfully extracted death_date and announcement_text for DeathNotice {$this->deathNotice->hash}", [
                     'death_date' => $ocrData['death_date'] ?? null,
                     'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
+                    'has_photo' => $ocrData['has_photo'] ?? false,
                 ]);
             } else {
                 Log::warning("No death_date found in OCR data for DeathNotice {$this->deathNotice->hash}", [
                     'attempt' => $this->attempts(),
                 ]);
+            }
+
+            // Extract portrait if photo detected
+            if (! empty($ocrData['has_photo']) && ! empty($ocrData['photo_bbox'])) {
+                $this->extractAndSavePortrait($ocrData['photo_bbox'], $ocrData['photo_description'] ?? null);
             }
 
             // Clean up temporary image file after successful extraction
@@ -104,6 +114,44 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
 
             // Rethrow to trigger retry mechanism
             throw $e;
+        }
+    }
+
+    /**
+     * Extract and save portrait photograph from parte image.
+     */
+    private function extractAndSavePortrait(array $bbox, ?string $description): void
+    {
+        try {
+            $portraitService = app(PortraitExtractionService::class);
+
+            // Extract portrait from parte image
+            $portraitPath = $portraitService->extractPortrait($this->imagePath, $bbox);
+
+            if ($portraitPath && file_exists($portraitPath)) {
+                // Save to media library
+                $this->deathNotice
+                    ->addMedia($portraitPath)
+                    ->withCustomProperties([
+                        'description' => $description,
+                        'extracted_at' => now()->toIso8601String(),
+                    ])
+                    ->toMediaCollection('portrait');
+
+                // Cleanup temp file
+                @unlink($portraitPath);
+
+                Log::info("Portrait extracted successfully for DeathNotice {$this->deathNotice->hash}", [
+                    'bbox' => $bbox,
+                    'description' => $description,
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Don't fail the entire job if portrait extraction fails (non-critical)
+            Log::warning("Portrait extraction failed (non-critical) for DeathNotice {$this->deathNotice->hash}", [
+                'error' => $e->getMessage(),
+                'bbox' => $bbox,
+            ]);
         }
     }
 

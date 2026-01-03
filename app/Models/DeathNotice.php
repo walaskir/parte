@@ -18,6 +18,7 @@ class DeathNotice extends Model implements HasMedia
         'source',
         'source_url',
         'announcement_text',
+        'has_photo',
     ];
 
     protected $casts = [
@@ -31,6 +32,11 @@ class DeathNotice extends Model implements HasMedia
             ->useDisk('parte')
             ->singleFile()
             ->acceptsMimeTypes(['application/pdf']);
+
+        $this->addMediaCollection('portrait')
+            ->useDisk('parte')
+            ->singleFile()
+            ->acceptsMimeTypes(['image/jpeg', 'image/png']);
     }
 
     public function getFullNameAttribute(): string

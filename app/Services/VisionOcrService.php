@@ -275,7 +275,15 @@ class VisionOcrService
   \"full_name\": \"Full name of the deceased (first name + last name, e.g. 'Jan Novák')\",
   \"death_date\": \"Date of death in YYYY-MM-DD format (or null if not found)\",
   \"funeral_date\": \"Date of funeral ceremony in YYYY-MM-DD format (or null if not found)\",
-  \"announcement_text\": \"Complete announcement text including funeral details (or null if not extractable)\"
+  \"announcement_text\": \"Complete announcement text including funeral details (or null if not extractable)\",
+  \"has_photo\": true,
+  \"photo_description\": \"Brief description of portrait (e.g., 'elderly woman, formal attire')\",
+  \"photo_bbox\": {
+    \"x_percent\": 15.5,
+    \"y_percent\": 10.0,
+    \"width_percent\": 25.0,
+    \"height_percent\": 35.0
+  }
 }
 
 EXTRACTION RULES:
@@ -287,7 +295,7 @@ EXTRACTION RULES:
 
 2. DEATH DATE:
    - Keywords: 'zemřel/a', '†', 'zmarł/a', 'data śmierci', 'dne', 'dnia'
-   - Formats: 'DD.MM.YYYY', 'D. MONTH YYYY' (e.g., '31. prosince 2025')
+   - Formats: 'DD.MM.YYYY', 'D. MONTH YYYY' (e.g., '31. grudnia 2025')
    - Convert to YYYY-MM-DD
 
 3. FUNERAL DATE:
@@ -302,8 +310,32 @@ EXTRACTION RULES:
    - Fix OCR errors: 'nds'→'nás', remove garbage ('R ża ©')
    - Return as continuous text with single spaces
 
+5. PHOTO DETECTION:
+   - Does this parte contain a portrait photograph of the deceased person?
+   - If YES: Set \"has_photo\": true
+   - Provide brief description (approximate age, gender, attire if visible)
+   - Provide bounding box as PERCENTAGE of image dimensions (0-100%)
+   - Photo is typically in upper left/right corner or center of document
+   - If NO photo: Set \"has_photo\": false, omit \"photo_description\" and \"photo_bbox\"
+
+BOUNDING BOX FORMAT (percentages of total image size):
+- x_percent: Distance from LEFT edge (0-100%)
+- y_percent: Distance from TOP edge (0-100%)
+- width_percent: Photo width as % of total image width (typically 20-30%)
+- height_percent: Photo height as % of total image height (typically 25-40%)
+
+Example: Photo at top-left corner, 200px×250px in 800px×1000px image:
+{
+  \"x_percent\": 5.0,
+  \"y_percent\": 8.0,
+  \"width_percent\": 25.0,
+  \"height_percent\": 25.0
+}
+
 Languages: Czech or Polish
 Return ONLY valid JSON, nothing else.";
+
+    
     }
 
     /**
@@ -328,6 +360,25 @@ Return ONLY valid JSON, nothing else.";
                 ]);
             } elseif ($cleaned !== 'null') {
                 $result['announcement_text'] = $cleaned;
+            }
+        }
+        // Add photo detection fields
+        $result['has_photo'] = isset($json['has_photo']) ? (bool)$json['has_photo'] : false;
+        $result['photo_description'] = $json['photo_description'] ?? null;
+        $result['photo_bbox'] = $json['photo_bbox'] ?? null;
+
+        // Validate photo_bbox if present
+        if ($result['photo_bbox']) {
+            $bbox = $result['photo_bbox'];
+            if (!isset($bbox['x_percent'], $bbox['y_percent'], $bbox['width_percent'], $bbox['height_percent'])) {
+                Log::warning('Photo bbox missing required fields', ['bbox' => $bbox]);
+                $result['photo_bbox'] = null;
+            } elseif ($bbox['x_percent'] < 0 || $bbox['x_percent'] > 100 ||
+                      $bbox['y_percent'] < 0 || $bbox['y_percent'] > 100 ||
+                      $bbox['width_percent'] < 5 || $bbox['width_percent'] > 100 ||
+                      $bbox['height_percent'] < 5 || $bbox['height_percent'] > 100) {
+                Log::warning('Photo bbox has invalid values', ['bbox' => $bbox]);
+                $result['photo_bbox'] = null;
             }
         }
 
