@@ -59,8 +59,12 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                 throw new \Exception("Image file not found: {$this->imagePath}");
             }
 
-            // Extract ONLY death_date
-            $ocrData = $visionOcrService->extractFromImage($this->imagePath, extractDeathDate: true);
+            // Extract death_date with known name context
+            $ocrData = $visionOcrService->extractFromImage(
+                $this->imagePath,
+                extractDeathDate: true,
+                knownName: $this->deathNotice->full_name
+            );
 
             // Extract text data ONLY if NOT portraits-only mode
             if (! $this->portraitsOnly) {

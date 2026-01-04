@@ -58,8 +58,8 @@ class ExtractImageParteJob implements ShouldQueue
                 throw new \Exception("Image file not found: {$this->imagePath}");
             }
 
-            // Extract name and funeral_date (NOT death_date)
-            $ocrData = $visionOcrService->extractFromImage($this->imagePath, extractDeathDate: false);
+            // Extract name and funeral_date (NOT death_date, no known name yet)
+            $ocrData = $visionOcrService->extractFromImage($this->imagePath, extractDeathDate: false, knownName: null);
 
             if (! $ocrData || ! isset($ocrData['full_name']) || ! $ocrData['full_name']) {
                 Log::warning("Image extraction returned no valid name for DeathNotice {$this->deathNotice->hash}", [

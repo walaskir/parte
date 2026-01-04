@@ -122,7 +122,9 @@ class DeathNoticeService
                     $mediaAdder = $notice->addMedia($pdfPath);
 
                     if ($originalName) {
-                        $mediaAdder->usingFileName($originalName);
+                        // Sanitize filename: decode URL encoding and replace spaces/special chars with underscores
+                        $sanitizedName = $this->sanitizeFileName($originalName);
+                        $mediaAdder->usingFileName($sanitizedName);
                     }
 
                     $mediaAdder->toMediaCollection('pdf');
@@ -321,6 +323,30 @@ class DeathNoticeService
 
             return false;
         }
+    }
+
+    /**
+     * Sanitize filename by replacing spaces and special characters with underscores
+     */
+    private function sanitizeFileName(string $fileName): string
+    {
+        // Decode URL-encoded characters first
+        $decoded = urldecode($fileName);
+
+        // Get file extension
+        $extension = pathinfo($decoded, PATHINFO_EXTENSION);
+        $nameWithoutExt = pathinfo($decoded, PATHINFO_FILENAME);
+
+        // Replace spaces and special characters with underscores
+        $sanitized = preg_replace('/[^\w\-.]/', '_', $nameWithoutExt);
+
+        // Remove multiple consecutive underscores
+        $sanitized = preg_replace('/_+/', '_', $sanitized);
+
+        // Trim underscores from start and end
+        $sanitized = trim($sanitized, '_');
+
+        return $sanitized.'.'.$extension;
     }
 
     /**

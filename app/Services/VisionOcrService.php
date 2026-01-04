@@ -32,7 +32,7 @@ class VisionOcrService
     /**
      * Main extraction method - delegates to ZhipuAI or Anthropic
      */
-    public function extractFromImage(string $imagePath, bool $extractDeathDate = false): ?array
+    public function extractFromImage(string $imagePath, bool $extractDeathDate = false, ?string $knownName = null): ?array
     {
         try {
             if (! file_exists($imagePath)) {
@@ -44,10 +44,11 @@ class VisionOcrService
             Log::info('VisionOcrService: Starting extraction', [
                 'image_path' => $imagePath,
                 'extract_mode' => $extractDeathDate ? 'death_date' : 'name+funeral_date',
+                'known_name' => $knownName,
             ]);
 
             // Priority 1: ZhipuAI GLM-4V (primary)
-            $result = $this->extractWithZhipuAI($imagePath);
+            $result = $this->extractWithZhipuAI($imagePath, $knownName);
 
             if ($result && $this->validateExtraction($result, $extractDeathDate)) {
                 Log::info('VisionOcrService: ZhipuAI extraction successful');
@@ -59,7 +60,7 @@ class VisionOcrService
             if ($this->anthropicApiKey) {
                 Log::warning('VisionOcrService: ZhipuAI failed, trying Anthropic fallback');
 
-                $result = $this->extractWithAnthropic($imagePath);
+                $result = $this->extractWithAnthropic($imagePath, $knownName);
 
                 if ($result && $this->validateExtraction($result, $extractDeathDate)) {
                     Log::info('VisionOcrService: Anthropic extraction successful');
@@ -85,7 +86,7 @@ class VisionOcrService
     /**
      * Extract using ZhipuAI GLM-4V
      */
-    private function extractWithZhipuAI(string $imagePath): ?array
+    private function extractWithZhipuAI(string $imagePath, ?string $knownName = null): ?array
     {
         try {
             $startTime = microtime(true);
@@ -93,7 +94,7 @@ class VisionOcrService
             $imageData = file_get_contents($imagePath);
             $base64Image = base64_encode($imageData);
 
-            $prompt = $this->getExtractionPrompt();
+            $prompt = $this->getExtractionPrompt($knownName);
 
             $response = Http::timeout(90)
                 ->withHeaders([
@@ -173,7 +174,7 @@ class VisionOcrService
     /**
      * Extract using Anthropic Claude (fallback)
      */
-    private function extractWithAnthropic(string $imagePath): ?array
+    private function extractWithAnthropic(string $imagePath, ?string $knownName = null): ?array
     {
         try {
             $startTime = microtime(true);
@@ -182,7 +183,7 @@ class VisionOcrService
             $base64Image = base64_encode($imageData);
             $mimeType = $this->getMimeType($imagePath);
 
-            $prompt = $this->getExtractionPrompt();
+            $prompt = $this->getExtractionPrompt($knownName);
             $config = config('services.anthropic');
 
             $response = Http::timeout(90)
@@ -267,8 +268,16 @@ class VisionOcrService
     /**
      * Universal extraction prompt for both APIs
      */
-    private function getExtractionPrompt(): string
+    private function getExtractionPrompt(?string $knownName = null): string
     {
+        $currentDate = now()->format('Y-m-d');
+        $currentYear = now()->year;
+        $currentMonth = now()->format('F Y');
+
+        $nameContext = $knownName
+            ? "\n\nCONTEXT: The deceased person's name is known to be: \"{$knownName}\"\n- Use this exact name in the announcement_text (do NOT change spelling or introduce OCR errors)\n- When extracting announcement_text, preserve this exact name spelling"
+            : '';
+
         return "Analyze this death notice (parte/obituary) image. Extract ALL available information in JSON format:
 
 {
@@ -284,7 +293,13 @@ class VisionOcrService
     \"width_percent\": 25.0,
     \"height_percent\": 35.0
   }
-}
+}{$nameContext}
+
+CURRENT DATE CONTEXT: Today is {$currentDate} ({$currentMonth})
+- Death notices are typically published within days/weeks of death
+- Death dates should be recent (typically within last 1-30 days from today)
+- If you see a year like '23', '24', '25', '26' it means 20{$currentYear}, NOT 1923/2023
+- CRITICAL: Do NOT extract old years like 2005, 2010, 2015, etc. Recent deaths are from late 2025 or early {$currentYear}
 
 EXTRACTION RULES:
 
@@ -293,22 +308,35 @@ EXTRACTION RULES:
    - Combine first + last name into single field
    - Fix OCR errors (e.g., 'Novdk' → 'Novák')
 
-2. DEATH DATE:
+2. DEATH DATE (CRITICAL - DATE VALIDATION):
    - Keywords: 'zemřel/a', '†', 'zmarł/a', 'data śmierci', 'dne', 'dnia'
-   - Formats: 'DD.MM.YYYY', 'D. MONTH YYYY' (e.g., '31. grudnia 2025')
+   - Formats: 'DD.MM.YYYY', 'DD.MM.YY', 'D. MONTH YYYY' (e.g., '31. prosince 2025')
    - Convert to YYYY-MM-DD
+   - VALIDATE: Death date must be RECENT (December 2025 or January {$currentYear})
+   - If OCR gives '24.12.05' it means '24.12.2025', NOT '24.12.2005'
+   - If OCR gives '22.3.23' it means '22.3.2023' (likely OCR error, check context)
+   - Common OCR errors: '2005'→'2025', '2015'→'2025', '23'→'2025'
 
 3. FUNERAL DATE:
    - Keywords: 'pohřeb', 'rozloučení', 'pogrzeb', 'pożegnanie', 'obřad se koná'
    - Same formats as death_date
    - Convert to YYYY-MM-DD
+   - Must be AFTER death_date (typically 3-14 days later)
 
 4. ANNOUNCEMENT TEXT:
    - Extract complete announcement: opening → names → dates → funeral details → closing
-   - INCLUDE: Full text, relationships, addresses, funeral time/location/venue
-   - EXCLUDE: Biblical verses BEFORE announcement, decorative borders
+   - INCLUDE: Full text, relationships, funeral time/location/venue, ending phrases
+   - EXCLUDE: 
+     * Biblical verses BEFORE announcement
+     * Decorative borders
+     * Funeral service contact information (phone numbers, addresses of funeral homes)
+     * Business names/logos of funeral services
+   - END the text at phrases like: 'Zarmoucená rodina', 'Smutná rodina', 'Manžel a děti', 'Pozůstalí'
+   - Do NOT include contact details (phone, address, email) that appear AFTER family signature
    - Fix OCR errors: 'nds'→'nás', remove garbage ('R ża ©')
+   - PRESERVE CORRECT NAME SPELLING (use known name if provided above)
    - Return as continuous text with single spaces
+   - ALWAYS ensure the announcement ends with a period (.) - if missing, add it
 
 5. PHOTO DETECTION:
    - Does this parte contain a portrait photograph of the deceased person?
@@ -334,8 +362,6 @@ Example: Photo at top-left corner, 200px×250px in 800px×1000px image:
 
 Languages: Czech or Polish
 Return ONLY valid JSON, nothing else.";
-
-    
     }
 
     /**
@@ -363,14 +389,14 @@ Return ONLY valid JSON, nothing else.";
             }
         }
         // Add photo detection fields
-        $result['has_photo'] = isset($json['has_photo']) ? (bool)$json['has_photo'] : false;
+        $result['has_photo'] = isset($json['has_photo']) ? (bool) $json['has_photo'] : false;
         $result['photo_description'] = $json['photo_description'] ?? null;
         $result['photo_bbox'] = $json['photo_bbox'] ?? null;
 
         // Validate photo_bbox if present
         if ($result['photo_bbox']) {
             $bbox = $result['photo_bbox'];
-            if (!isset($bbox['x_percent'], $bbox['y_percent'], $bbox['width_percent'], $bbox['height_percent'])) {
+            if (! isset($bbox['x_percent'], $bbox['y_percent'], $bbox['width_percent'], $bbox['height_percent'])) {
                 Log::warning('Photo bbox missing required fields', ['bbox' => $bbox]);
                 $result['photo_bbox'] = null;
             } elseif ($bbox['x_percent'] < 0 || $bbox['x_percent'] > 100 ||
