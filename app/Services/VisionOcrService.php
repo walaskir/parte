@@ -148,7 +148,7 @@ class VisionOcrService
                 return null;
             }
 
-            $result = $this->cleanExtractionResult($json);
+            $result = $this->cleanExtractionResult($json, $knownName);
 
             $duration = microtime(true) - $startTime;
             Log::info('ZhipuAI extraction completed', [
@@ -242,7 +242,7 @@ class VisionOcrService
                 return null;
             }
 
-            $result = $this->cleanExtractionResult($json);
+            $result = $this->cleanExtractionResult($json, $knownName);
 
             $duration = microtime(true) - $startTime;
             Log::info('Anthropic extraction completed', [
@@ -275,10 +275,20 @@ class VisionOcrService
         $currentMonth = now()->format('F Y');
 
         $nameContext = $knownName
-            ? "\n\nCONTEXT: The deceased person's name is known to be: \"{$knownName}\"\n- Use this exact name in the announcement_text (do NOT change spelling or introduce OCR errors)\n- When extracting announcement_text, preserve this exact name spelling"
+            ? "\n\n**CRITICAL - KNOWN NAME CONTEXT:**\nThe deceased person's name has been VERIFIED: \"{$knownName}\"\n\n**MANDATORY RULES:**\n1. RETURN THIS EXACT NAME in the \"full_name\" field - character-by-character identical\n2. DO NOT \"fix\" or \"correct\" this name - it already has proper Czech/Polish diacritics\n3. DO NOT change any characters: 'á' must stay 'á', 'ř' must stay 'ř', 'ł' must stay 'ł', etc.\n4. When this name appears in announcement_text, use this EXACT spelling (preserve diacritics)\n5. This name is authoritative - OCR in the image may have errors, THIS text is correct\n\nEXAMPLE: If known name is \"Dvořák\", return {\"full_name\": \"Dvořák\"} - NOT \"Dvorak\", \"Dvořâk\", or \"Dvořak\""
             : '';
 
-        return "Analyze this death notice (parte/obituary) image. Extract ALL available information in JSON format:
+        return "**DOCUMENT LANGUAGE: Czech or Polish**
+
+**CRITICAL - DIACRITICS PRESERVATION:**
+- ALWAYS preserve Czech diacritics: á č ď é ě í ň ó ř š ť ú ů ý ž (uppercase: Á Č Ď É Ě Í Ň Ó Ř Š Ť Ú Ů Ý Ž)
+- ALWAYS preserve Polish characters: ą ć ę ł ń ó ś ź ż (uppercase: Ą Ć Ę Ł Ń Ó Ś Ź Ż)
+- Do NOT replace diacritics with plain ASCII (WRONG: 'Novak' → CORRECT: 'Novák')
+- Do NOT use combining diacritics or wrong Unicode (WRONG: 'Nová́k' → CORRECT: 'Novák')
+- Common Czech names: Novák, Dvořák, Němec, Kučera, Hájek, Černý, Svoboda
+- Common Polish names: Wałęsa, Kowalski, Wójcik, Szymański, Dąbrowski
+
+Analyze this death notice (parte/obituary) image. Extract ALL available information in JSON format:
 
 {
   \"full_name\": \"Full name of the deceased (first name + last name, e.g. 'Jan Novák')\",
@@ -303,10 +313,22 @@ CURRENT DATE CONTEXT: Today is {$currentDate} ({$currentMonth})
 
 EXTRACTION RULES:
 
+0. CHARACTER ENCODING (ABSOLUTE PRIORITY):
+   - Document is written in Czech or Polish language
+   - PRESERVE all diacritics and special characters exactly as they appear
+   - Fix OCR errors EXCEPT diacritics that look correct
+   - If a name has diacritics, they are likely CORRECT (Czech/Polish names require them)
+   - Example fixes: 'Novdk'→'Novák' (add missing 'á'), 'Nov6k'→'Novák' (fix OCR digit error)
+   - Example DO NOT change: 'Dvořák' stays 'Dvořák' (already correct diacritics)
+   - Czech diacritics: á č ď é ě í ň ó ř š ť ú ů ý ž
+   - Polish characters: ą ć ę ł ń ó ś ź ż
+
 1. FULL NAME:
    - Look after: 'paní', 'pan', 'panem' (Czech), 'Sp.', 'śp.', '§p.' (Polish)
    - Combine first + last name into single field
    - Fix OCR errors (e.g., 'Novdk' → 'Novák')
+   - PRESERVE Czech/Polish diacritics: 'Novák' not 'Novak', 'Dvořák' not 'Dvorak'
+   - Examples: 'Jan Novák', 'Marie Dvořáková', 'Józef Wójcik', 'Anna Wałęsa'
 
 2. DEATH DATE (CRITICAL - DATE VALIDATION):
    - Keywords: 'zemřel/a', '†', 'zmarł/a', 'data śmierci', 'dne', 'dnia'
@@ -334,6 +356,7 @@ EXTRACTION RULES:
    - END the text at phrases like: 'Zarmoucená rodina', 'Smutná rodina', 'Manžel a děti', 'Pozůstalí'
    - Do NOT include contact details (phone, address, email) that appear AFTER family signature
    - Fix OCR errors: 'nds'→'nás', remove garbage ('R ża ©')
+   - CRITICAL: Preserve ALL Czech and Polish diacritics in the entire text
    - PRESERVE CORRECT NAME SPELLING (use known name if provided above)
    - Return as continuous text with single spaces
    - ALWAYS ensure the announcement ends with a period (.) - if missing, add it
@@ -367,7 +390,7 @@ Return ONLY valid JSON, nothing else.";
     /**
      * Clean and validate extraction result
      */
-    private function cleanExtractionResult(array $json): array
+    private function cleanExtractionResult(array $json, ?string $knownName = null): array
     {
         $result = [
             'full_name' => $json['full_name'] ?? null,
@@ -375,6 +398,19 @@ Return ONLY valid JSON, nothing else.";
             'funeral_date' => $json['funeral_date'] ?? null,
             'announcement_text' => null,
         ];
+
+        // CRITICAL: Validate known name wasn't changed by AI
+        if ($knownName && isset($result['full_name'])) {
+            if ($result['full_name'] !== $knownName) {
+                Log::warning('AI attempted to change known name - reverting to original', [
+                    'known_name' => $knownName,
+                    'ai_returned' => $result['full_name'],
+                    'difference' => $this->compareStrings($knownName, $result['full_name']),
+                ]);
+                // Force correct name with proper diacritics
+                $result['full_name'] = $knownName;
+            }
+        }
 
         if (isset($json['announcement_text']) && $json['announcement_text']) {
             $cleaned = preg_replace('/\s+/', ' ', trim($json['announcement_text']));
@@ -409,6 +445,60 @@ Return ONLY valid JSON, nothing else.";
         }
 
         return $result;
+    }
+
+    /**
+     * Compare two strings and return difference summary
+     */
+    private function compareStrings(string $expected, string $received): string
+    {
+        if ($expected === $received) {
+            return 'identical';
+        }
+
+        $diffs = [];
+
+        // Check for removed diacritics
+        $expectedNormalized = $this->removeDiacritics($expected);
+        $receivedNormalized = $this->removeDiacritics($received);
+
+        if ($expectedNormalized === $receivedNormalized) {
+            $diffs[] = 'diacritics removed or changed';
+        }
+
+        // Check case changes
+        if (mb_strtolower($expected) === mb_strtolower($received)) {
+            $diffs[] = 'case changed';
+        }
+
+        // Check length difference
+        $lenDiff = mb_strlen($received) - mb_strlen($expected);
+        if ($lenDiff !== 0) {
+            $diffs[] = sprintf('%d characters %s', abs($lenDiff), $lenDiff > 0 ? 'added' : 'removed');
+        }
+
+        return empty($diffs) ? 'completely different' : implode(', ', $diffs);
+    }
+
+    /**
+     * Remove Czech and Polish diacritics for comparison
+     */
+    private function removeDiacritics(string $text): string
+    {
+        $diacritics = [
+            'á' => 'a', 'č' => 'c', 'ď' => 'd', 'é' => 'e', 'ě' => 'e',
+            'í' => 'i', 'ň' => 'n', 'ó' => 'o', 'ř' => 'r', 'š' => 's',
+            'ť' => 't', 'ú' => 'u', 'ů' => 'u', 'ý' => 'y', 'ž' => 'z',
+            'Á' => 'A', 'Č' => 'C', 'Ď' => 'D', 'É' => 'E', 'Ě' => 'E',
+            'Í' => 'I', 'Ň' => 'N', 'Ó' => 'O', 'Ř' => 'R', 'Š' => 'S',
+            'Ť' => 'T', 'Ú' => 'U', 'Ů' => 'U', 'Ý' => 'Y', 'Ž' => 'Z',
+            'ą' => 'a', 'ć' => 'c', 'ę' => 'e', 'ł' => 'l', 'ń' => 'n',
+            'ó' => 'o', 'ś' => 's', 'ź' => 'z', 'ż' => 'z',
+            'Ą' => 'A', 'Ć' => 'C', 'Ę' => 'E', 'Ł' => 'L', 'Ń' => 'N',
+            'Ó' => 'O', 'Ś' => 'S', 'Ź' => 'Z', 'Ż' => 'Z',
+        ];
+
+        return strtr($text, $diacritics);
     }
 
     /**
