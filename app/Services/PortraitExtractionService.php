@@ -27,6 +27,14 @@ class PortraitExtractionService
                 return null;
             }
 
+            // Apply automatic padding to remove black borders
+            $adjustedBbox = $this->applyAutomaticPadding($bbox);
+
+            Log::info('Applying automatic padding to bbox', [
+                'original' => $bbox,
+                'adjusted' => $adjustedBbox,
+            ]);
+
             // Check if image exists
             if (! file_exists($imagePath)) {
                 Log::warning('Image file does not exist for portrait extraction', [
@@ -51,11 +59,11 @@ class PortraitExtractionService
             $imageWidth = $imagick->getImageWidth();
             $imageHeight = $imagick->getImageHeight();
 
-            // Convert percentages to pixels
-            $x = (int) (($bbox['x_percent'] / 100) * $imageWidth);
-            $y = (int) (($bbox['y_percent'] / 100) * $imageHeight);
-            $width = (int) (($bbox['width_percent'] / 100) * $imageWidth);
-            $height = (int) (($bbox['height_percent'] / 100) * $imageHeight);
+            // Convert percentages to pixels (using adjusted bbox)
+            $x = (int) (($adjustedBbox['x_percent'] / 100) * $imageWidth);
+            $y = (int) (($adjustedBbox['y_percent'] / 100) * $imageHeight);
+            $width = (int) (($adjustedBbox['width_percent'] / 100) * $imageWidth);
+            $height = (int) (($adjustedBbox['height_percent'] / 100) * $imageHeight);
 
             // Validate pixel coordinates don't exceed image bounds
             if ($x + $width > $imageWidth) {
@@ -165,5 +173,49 @@ class PortraitExtractionService
         }
 
         return true;
+    }
+
+    /**
+     * Apply automatic padding to remove black borders from portrait bounding box.
+     *
+     * Strategy:
+     * - side=1%, bottom=1% for all (consistent border removal)
+     * - top=1% only if Y < 8% (photo positioned high = likely has black bar on top)
+     *
+     * @param  array  $bbox  Original bounding box ['x_percent', 'y_percent', 'width_percent', 'height_percent']
+     * @return array Adjusted bounding box with padding applied
+     */
+    private function applyAutomaticPadding(array $bbox): array
+    {
+        // Determine padding based on photo position
+        $topPadding = ($bbox['y_percent'] < 8.0) ? 1.0 : 0.0;
+        $sidePadding = 1.0;
+        $bottomPadding = 1.0;
+
+        // Calculate adjusted coordinates
+        $adjusted = [
+            'x_percent' => $bbox['x_percent'] + $sidePadding,
+            'y_percent' => $bbox['y_percent'] + $topPadding,
+            'width_percent' => $bbox['width_percent'] - (2 * $sidePadding),
+            'height_percent' => $bbox['height_percent'] - ($topPadding + $bottomPadding),
+        ];
+
+        // Ensure adjusted bbox stays within valid range (0-100%)
+        $adjusted['x_percent'] = max(0, min(100, $adjusted['x_percent']));
+        $adjusted['y_percent'] = max(0, min(100, $adjusted['y_percent']));
+        $adjusted['width_percent'] = max(0, min(100, $adjusted['width_percent']));
+        $adjusted['height_percent'] = max(0, min(100, $adjusted['height_percent']));
+
+        // Ensure x + width doesn't exceed 100%
+        if ($adjusted['x_percent'] + $adjusted['width_percent'] > 100) {
+            $adjusted['width_percent'] = 100 - $adjusted['x_percent'];
+        }
+
+        // Ensure y + height doesn't exceed 100%
+        if ($adjusted['y_percent'] + $adjusted['height_percent'] > 100) {
+            $adjusted['height_percent'] = 100 - $adjusted['y_percent'];
+        }
+
+        return $adjusted;
     }
 }
