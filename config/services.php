@@ -35,6 +35,17 @@ return [
         ],
     ],
 
+    'vision' => [
+        'provider' => env('VISION_PROVIDER', 'gemini'),
+        'fallback_provider' => env('VISION_FALLBACK_PROVIDER', 'zhipuai'),
+    ],
+
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-3-flash-preview'),
+        'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
+    ],
+
     'zhipuai' => [
         'api_key' => env('ZHIPUAI_API_KEY'),
         'model' => env('ZHIPUAI_MODEL', 'glm-4.6v-flash'),

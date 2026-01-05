@@ -81,7 +81,7 @@ php artisan parte:process-existing --extract-portraits --force # Re-extract ALL
 - Always check hash existence before insert to prevent duplicates
 
 ### Announcement Text Extraction
-- **Flow:** AI-first approach (ZhipuAI GLM-4V → Anthropic Claude Vision fallback)
+- **Flow:** AI-first approach (configurable provider with fallback)
 - **Content:** Complete announcement INCLUDING funeral details (date, time, location)
 - **Validation:** Warn if < 50 chars or literal "null" string
 - **Storage:** Text field, whitespace collapsed to single spaces
@@ -114,18 +114,34 @@ $imagick->destroy();
 ```
 
 ### AI Extraction (CRITICAL)
-- **Flow:** ZhipuAI GLM-4V (primary) → Anthropic Claude Vision (fallback)
-- **Primary API:** `config('services.zhipuai.api_key')`
-- **Primary Model:** `glm-4.6v-flash` (multimodal, supports PDF/JPG, ~1047 tokens/image)
-- **Fallback API:** `config('services.anthropic.api_key')`
-- **Fallback Model:** `claude-3-5-sonnet-20241022` (paid account)
+- **Provider Selection:** Configurable via `VISION_PROVIDER` in `.env`
+  - `gemini` - Google Gemini API (default, gemini-3-flash-preview)
+  - `zhipuai` - ZhipuAI GLM-4V (glm-4.6v-flash)
+  - `anthropic` - Anthropic Claude Vision (claude-3-5-sonnet-20241022)
+- **Fallback:** Configurable via `VISION_FALLBACK_PROVIDER` in `.env` (default: zhipuai)
+- **Fallback Strategy:** Attempts primary provider → fallback provider → all remaining configured providers
+- **Exception:** Throws exception if NO providers are configured (at least one API key required)
+- **Google Gemini API:**
+  - API Key: `config('services.gemini.api_key')` (GEMINI_API_KEY)
+  - Model: `gemini-3-flash-preview` (configurable via GEMINI_MODEL)
+  - Endpoint: `https://generativelanguage.googleapis.com/v1beta`
+  - Supports: JPEG, PNG, PDF (base64 inline_data)
+  - Response: `candidates[0].content.parts[0].text`
+- **ZhipuAI API:**
+  - API Key: `config('services.zhipuai.api_key')` (ZHIPUAI_API_KEY)
+  - Model: `glm-4.6v-flash` (multimodal, ~1047 tokens/image)
+  - Endpoint: `https://open.bigmodel.cn/api/paas/v4`
+- **Anthropic API:**
+  - API Key: `config('services.anthropic.api_key')` (ANTHROPIC_API_KEY)
+  - Model: `claude-3-5-sonnet-20241022`
+  - Endpoint: `https://api.anthropic.com/v1/messages`
 - **Prompt:** Extracts complete announcement WITH funeral details, fixes OCR errors
 - **Photo Detection:** AI detects portrait photos, returns bounding box coordinates as percentages
 - **Portrait Extraction:** Automated cropping via `PortraitExtractionService` using Imagick
 - **Portrait Storage:** Saved separately to 'portrait' media collection (max 400x400px JPEG, quality 85)
-- **Portrait Toggle:** Can be disabled via `PARTE_EXTRACT_PORTRAITS=false` in `.env` (default: true)
+- **Portrait Toggle:** Can be disabled via `EXTRACT_PORTRAITS=false` in `.env` (default: true)
 - **Non-Critical:** Portrait extraction failures don't fail the entire job (logged as warnings)
-- **Timeout:** Job timeout 300s (5 minutes)
+- **Timeout:** Job timeout 300s (5 minutes), HTTP timeout 90s
 - **Sequential Processing:** Jobs run one at a time on `extraction` queue (maxJobs=1)
 - Always delete temp files after successful processing
 

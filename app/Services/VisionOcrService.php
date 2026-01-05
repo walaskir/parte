@@ -8,29 +8,38 @@ use Illuminate\Support\Facades\Log;
 
 class VisionOcrService
 {
+    private string $primaryProvider;
+
+    private ?string $fallbackProvider;
+
+    private ?string $geminiApiKey;
+
     private ?string $zhipuaiApiKey;
-
-    private string $zhipuaiModel;
-
-    private string $zhipuaiBaseUrl;
 
     private ?string $anthropicApiKey;
 
     public function __construct()
     {
-        $this->zhipuaiApiKey = config('services.zhipuai.api_key');
-        $this->zhipuaiModel = config('services.zhipuai.model');
-        $this->zhipuaiBaseUrl = config('services.zhipuai.base_url');
+        $this->primaryProvider = config('services.vision.provider', 'gemini');
+        $this->fallbackProvider = config('services.vision.fallback_provider');
 
+        $this->geminiApiKey = config('services.gemini.api_key');
+        $this->zhipuaiApiKey = config('services.zhipuai.api_key');
         $this->anthropicApiKey = config('services.anthropic.api_key');
 
-        if (empty($this->zhipuaiApiKey)) {
-            throw new Exception('ZhipuAI API key is not configured. Please set ZHIPUAI_API_KEY in .env file.');
+        $configuredProviders = $this->getAllConfiguredProviders();
+
+        if (empty($configuredProviders)) {
+            throw new Exception('No vision providers configured. Please set at least one provider API key (GEMINI_API_KEY, ZHIPUAI_API_KEY, or ANTHROPIC_API_KEY) in .env file.');
+        }
+
+        if (! $this->isProviderConfigured($this->primaryProvider)) {
+            throw new Exception("Primary vision provider '{$this->primaryProvider}' is not configured. Please set the API key in .env file or change VISION_PROVIDER.");
         }
     }
 
     /**
-     * Main extraction method - delegates to ZhipuAI or Anthropic
+     * Main extraction method - delegates to configured providers
      */
     public function extractFromImage(string $imagePath, bool $extractDeathDate = false, ?string $knownName = null): ?array
     {
@@ -45,25 +54,52 @@ class VisionOcrService
                 'image_path' => $imagePath,
                 'extract_mode' => $extractDeathDate ? 'death_date' : 'name+funeral_date',
                 'known_name' => $knownName,
+                'primary_provider' => $this->primaryProvider,
+                'fallback_provider' => $this->fallbackProvider,
             ]);
 
-            // Priority 1: ZhipuAI GLM-4V (primary)
-            $result = $this->extractWithZhipuAI($imagePath, $knownName);
+            // Try primary provider
+            $result = $this->extractWithProvider($this->primaryProvider, $imagePath, $knownName);
 
             if ($result && $this->validateExtraction($result, $extractDeathDate)) {
-                Log::info('VisionOcrService: ZhipuAI extraction successful');
+                Log::info('VisionOcrService: Primary provider extraction successful', [
+                    'provider' => $this->primaryProvider,
+                ]);
 
                 return $result;
             }
 
-            // Priority 2: Anthropic Claude (fallback)
-            if ($this->anthropicApiKey) {
-                Log::warning('VisionOcrService: ZhipuAI failed, trying Anthropic fallback');
+            // Try fallback provider
+            if ($this->fallbackProvider && $this->isProviderConfigured($this->fallbackProvider)) {
+                Log::warning('VisionOcrService: Primary provider failed, trying fallback', [
+                    'primary' => $this->primaryProvider,
+                    'fallback' => $this->fallbackProvider,
+                ]);
 
-                $result = $this->extractWithAnthropic($imagePath, $knownName);
+                $result = $this->extractWithProvider($this->fallbackProvider, $imagePath, $knownName);
 
                 if ($result && $this->validateExtraction($result, $extractDeathDate)) {
-                    Log::info('VisionOcrService: Anthropic extraction successful');
+                    Log::info('VisionOcrService: Fallback provider extraction successful', [
+                        'provider' => $this->fallbackProvider,
+                    ]);
+
+                    return $result;
+                }
+            }
+
+            // Try all remaining configured providers as last resort
+            $triedProviders = [$this->primaryProvider, $this->fallbackProvider];
+            $remainingProviders = array_diff($this->getAllConfiguredProviders(), $triedProviders);
+
+            foreach ($remainingProviders as $provider) {
+                Log::warning('VisionOcrService: Trying remaining provider', ['provider' => $provider]);
+
+                $result = $this->extractWithProvider($provider, $imagePath, $knownName);
+
+                if ($result && $this->validateExtraction($result, $extractDeathDate)) {
+                    Log::info('VisionOcrService: Remaining provider extraction successful', [
+                        'provider' => $provider,
+                    ]);
 
                     return $result;
                 }
@@ -84,6 +120,141 @@ class VisionOcrService
     }
 
     /**
+     * Extract with specific provider
+     */
+    private function extractWithProvider(string $provider, string $imagePath, ?string $knownName): ?array
+    {
+        return match ($provider) {
+            'gemini' => $this->extractWithGemini($imagePath, $knownName),
+            'zhipuai' => $this->extractWithZhipuAI($imagePath, $knownName),
+            'anthropic' => $this->extractWithAnthropic($imagePath, $knownName),
+            default => throw new Exception("Unknown vision provider: {$provider}")
+        };
+    }
+
+    /**
+     * Check if provider is configured
+     */
+    private function isProviderConfigured(string $provider): bool
+    {
+        return match ($provider) {
+            'gemini' => ! empty($this->geminiApiKey),
+            'zhipuai' => ! empty($this->zhipuaiApiKey),
+            'anthropic' => ! empty($this->anthropicApiKey),
+            default => false
+        };
+    }
+
+    /**
+     * Get all configured providers
+     */
+    private function getAllConfiguredProviders(): array
+    {
+        $providers = [];
+
+        if ($this->isProviderConfigured('gemini')) {
+            $providers[] = 'gemini';
+        }
+
+        if ($this->isProviderConfigured('zhipuai')) {
+            $providers[] = 'zhipuai';
+        }
+
+        if ($this->isProviderConfigured('anthropic')) {
+            $providers[] = 'anthropic';
+        }
+
+        return $providers;
+    }
+
+    /**
+     * Extract using Google Gemini
+     */
+    private function extractWithGemini(string $imagePath, ?string $knownName = null): ?array
+    {
+        try {
+            $startTime = microtime(true);
+
+            $imageData = file_get_contents($imagePath);
+            $base64Image = base64_encode($imageData);
+            $mimeType = $this->getMimeType($imagePath);
+
+            $prompt = $this->getExtractionPrompt($knownName);
+            $config = config('services.gemini');
+
+            $response = Http::timeout(90)
+                ->withHeaders([
+                    'x-goog-api-key' => $this->geminiApiKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post("{$config['base_url']}/models/{$config['model']}:generateContent", [
+                    'contents' => [
+                        [
+                            'parts' => [
+                                [
+                                    'text' => $prompt,
+                                ],
+                                [
+                                    'inline_data' => [
+                                        'mime_type' => $mimeType,
+                                        'data' => $base64Image,
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]);
+
+            if (! $response->successful()) {
+                Log::error('Gemini API request failed', [
+                    'status' => $response->status(),
+                    'error' => $response->body(),
+                ]);
+
+                return null;
+            }
+
+            $data = $response->json();
+            $responseText = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
+
+            if (! $responseText) {
+                Log::warning('Gemini returned empty response', ['data' => $data]);
+
+                return null;
+            }
+
+            $json = $this->extractJson($responseText);
+
+            if (! $json) {
+                Log::warning('Gemini returned invalid JSON', ['response' => $responseText]);
+
+                return null;
+            }
+
+            $result = $this->cleanExtractionResult($json, $knownName);
+
+            $duration = microtime(true) - $startTime;
+            Log::info('Gemini extraction completed', [
+                'duration_seconds' => round($duration, 2),
+                'has_name' => isset($result['full_name']) && $result['full_name'],
+                'has_death_date' => isset($result['death_date']) && $result['death_date'],
+                'has_funeral_date' => isset($result['funeral_date']) && $result['funeral_date'],
+                'has_announcement' => isset($result['announcement_text']) && $result['announcement_text'],
+            ]);
+
+            return $result;
+
+        } catch (Exception $e) {
+            Log::error('Gemini extraction failed', [
+                'error' => $e->getMessage(),
+                'image_path' => $imagePath,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
      * Extract using ZhipuAI GLM-4V
      */
     private function extractWithZhipuAI(string $imagePath, ?string $knownName = null): ?array
@@ -95,14 +266,15 @@ class VisionOcrService
             $base64Image = base64_encode($imageData);
 
             $prompt = $this->getExtractionPrompt($knownName);
+            $config = config('services.zhipuai');
 
             $response = Http::timeout(90)
                 ->withHeaders([
                     'Authorization' => "Bearer {$this->zhipuaiApiKey}",
                     'Content-Type' => 'application/json',
                 ])
-                ->post("{$this->zhipuaiBaseUrl}/chat/completions", [
-                    'model' => $this->zhipuaiModel,
+                ->post("{$config['base_url']}/chat/completions", [
+                    'model' => $config['model'],
                     'messages' => [
                         [
                             'role' => 'user',
@@ -266,7 +438,7 @@ class VisionOcrService
     }
 
     /**
-     * Universal extraction prompt for both APIs
+     * Universal extraction prompt for all APIs
      */
     private function getExtractionPrompt(?string $knownName = null): string
     {
@@ -545,6 +717,7 @@ Return ONLY valid JSON, nothing else.";
             'png' => 'image/png',
             'gif' => 'image/gif',
             'webp' => 'image/webp',
+            'pdf' => 'application/pdf',
             default => 'image/jpeg',
         };
     }

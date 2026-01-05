@@ -22,6 +22,18 @@ class DeathNoticeService
     ];
 
     /**
+     * Get available scraper source keys
+     */
+    public function getAvailableSources(): array
+    {
+        $funeralServices = \App\Models\FuneralService::where('active', true)->get();
+
+        return $funeralServices->map(function ($service) {
+            return $service->slug;
+        })->values()->toArray();
+    }
+
+    /**
      * Download notices from specified sources
      */
     public function downloadNotices(?array $sources = null): array
@@ -88,7 +100,7 @@ class DeathNoticeService
                     }
                 }
             } catch (\Exception $e) {
-                Log::error("Error scraping {$source}: {$e->getMessage()}");
+                Log::error("Error scraping {$sourceKey}: {$e->getMessage()}");
                 $results['errors']++;
             }
         }
@@ -171,96 +183,49 @@ class DeathNoticeService
         }
     }
 
-    /**
-     * Convert image to PDF using Browsershot
-     */
-    private function convertImageToPdf(string $imageUrl, string $outputPath, ?DeathNotice $notice = null): bool
-    {
-        try {
-            $response = Http::timeout(30)->get($imageUrl);
-
-            if (! $response->successful()) {
-                Log::warning("Failed to download image: {$imageUrl}");
-
-                return false;
-            }
-
-            $imageContent = $response->body();
-
-            // Determine image type from URL or content
-            $imageType = 'image/jpeg';
-            if (str_contains($imageUrl, '.png')) {
-                $imageType = 'image/png';
-            } elseif (str_contains($imageUrl, '.gif')) {
-                $imageType = 'image/gif';
-            }
-
-            // Save temporary image for OCR processing via queue
-            if ($notice) {
-                $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_image_').'.jpg');
-                file_put_contents($tempImagePath, $imageContent);
-
-                // Dispatch ExtractImageParteJob for PS BK (name + funeral_date)
-                \App\Jobs\ExtractImageParteJob::dispatch($notice, $tempImagePath);
-
-                Log::info("Dispatched ExtractImageParteJob for PS BK notice {$notice->hash}");
-            }
-
-            // Encode image as base64
-            $base64Image = base64_encode($imageContent);
-            $dataUri = "data:{$imageType};base64,{$base64Image}";
-
-            $html = "
-                <html>
-                <head>
-                    <style>
-                        body { margin: 0; padding: 0; }
-                        img { width: 100%; height: auto; }
-                    </style>
-                </head>
-                <body>
-                    <img src='{$dataUri}' />
-                </body>
-                </html>
-            ";
-
-            Browsershot::html($html)
-                ->format('A4')
-                ->margins(0, 0, 0, 0)
-                ->save($outputPath);
-
-            return true;
-        } catch (\Exception $e) {
-            Log::error("Error converting image to PDF: {$e->getMessage()}");
-
-            return false;
-        }
-    }
-
     private function downloadOriginalPdf(string $pdfUrl, string $outputPath, ?DeathNotice $notice = null): bool
     {
-        try {
-            $response = Http::timeout(30)->get($pdfUrl);
+        $maxRetries = 3;
+        $retryDelay = 2; // seconds
 
-            if (! $response->successful()) {
-                Log::warning("Failed to download PDF: {$pdfUrl}");
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            try {
+                $response = Http::timeout(30)->get($pdfUrl);
 
-                return false;
+                if (! $response->successful()) {
+                    Log::warning("Failed to download PDF (attempt {$attempt}/{$maxRetries}): {$pdfUrl}", [
+                        'status' => $response->status(),
+                    ]);
+
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay * $attempt); // Exponential backoff
+                    }
+
+                    continue;
+                }
+
+                file_put_contents($outputPath, $response->body());
+
+                // Dispatch death_date extraction job for PDF-based parte (Sadovy Jan, PS Hajdukova)
+                if ($notice) {
+                    $this->dispatchPdfOcrJob($notice, $outputPath);
+                }
+
+                return true;
+            } catch (\Exception $e) {
+                Log::warning("Error downloading original PDF (attempt {$attempt}/{$maxRetries}): {$e->getMessage()}", [
+                    'url' => $pdfUrl,
+                ]);
+
+                if ($attempt < $maxRetries) {
+                    sleep($retryDelay * $attempt);
+                }
             }
-
-            file_put_contents($outputPath, $response->body());
-
-            // Dispatch death_date extraction job for PDF-based parte (Sadovy Jan, PS Hajdukova)
-            if ($notice) {
-                $this->dispatchPdfOcrJob($notice, $outputPath);
-            }
-
-            return true;
-        } catch (\Exception $e) {
-            Log::error("Error downloading original PDF: {$e->getMessage()}");
-
-            return false;
         }
+
+        Log::error("Failed to download PDF after {$maxRetries} attempts: {$pdfUrl}");
+
+        return false;
     }
 
     /**
@@ -350,10 +315,92 @@ class DeathNoticeService
     }
 
     /**
-     * Get available sources
+     * Convert image to PDF using Browsershot
      */
-    public function getAvailableSources(): array
+    private function convertImageToPdf(string $imageUrl, string $outputPath, ?DeathNotice $notice = null): bool
     {
-        return array_keys($this->scrapers);
+        $maxRetries = 3;
+        $retryDelay = 2; // seconds
+
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            try {
+                $response = Http::timeout(30)->get($imageUrl);
+
+                if (! $response->successful()) {
+                    Log::warning("Failed to download image (attempt {$attempt}/{$maxRetries}): {$imageUrl}", [
+                        'status' => $response->status(),
+                    ]);
+
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay * $attempt); // Exponential backoff
+
+                        continue;
+                    }
+
+                    return false;
+                }
+
+                $imageContent = $response->body();
+
+                // Determine image type from URL or content
+                $imageType = 'image/jpeg';
+                if (str_contains($imageUrl, '.png')) {
+                    $imageType = 'image/png';
+                } elseif (str_contains($imageUrl, '.gif')) {
+                    $imageType = 'image/gif';
+                }
+
+                // Save temporary image for OCR processing via queue
+                if ($notice) {
+                    $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_image_').'.jpg');
+                    file_put_contents($tempImagePath, $imageContent);
+
+                    // Dispatch ExtractImageParteJob for PS BK (name + funeral_date)
+                    \App\Jobs\ExtractImageParteJob::dispatch($notice, $tempImagePath);
+
+                    Log::info("Dispatched ExtractImageParteJob for PS BK notice {$notice->hash}");
+                }
+
+                // Encode image as base64
+                $base64Image = base64_encode($imageContent);
+                $dataUri = "data:{$imageType};base64,{$base64Image}";
+
+                $html = "
+                    <html>
+                    <head>
+                        <style>
+                            body { margin: 0; padding: 0; }
+                            img { width: 100%; height: auto; }
+                        </style>
+                    </head>
+                    <body>
+                        <img src='{$dataUri}' />
+                    </body>
+                    </html>
+                ";
+
+                Browsershot::html($html)
+                    ->format('A4')
+                    ->margins(0, 0, 0, 0)
+                    ->save($outputPath);
+
+                return true;
+
+            } catch (\Exception $e) {
+                Log::warning("Error converting image to PDF (attempt {$attempt}/{$maxRetries}): {$e->getMessage()}");
+
+                if ($attempt < $maxRetries) {
+                    sleep($retryDelay * $attempt);
+
+                    continue;
+                }
+
+                Log::error("Failed to convert image to PDF after {$maxRetries} attempts: {$imageUrl}");
+
+                return false;
+            }
+        }
+
+        return false;
     }
 }
