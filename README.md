@@ -40,28 +40,8 @@ sudo apt-get install -y imagemagick
 # PHP rozšíření
 sudo apt-get install -y php8.4-imagick php8.4-gd
 
-# Chrome/Puppeteer dependencies pro Browsershot (konverze image → PDF)
-# Ubuntu 24.04+
-sudo apt-get install -y \
-    libnspr4 \
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2t64
-
-# Poznámka: Ubuntu <24.04 používá 'libasound2' místo 'libasound2t64'
-
 # Ověření instalace
 php -m | grep imagick   # Mělo by zobrazit: imagick
-node -e "const puppeteer = require('puppeteer'); console.log('Puppeteer OK');"
 ```
 
 ### 3. Konfigurace ImageMagick pro PDF
@@ -288,7 +268,8 @@ php artisan queue:retry all
 - **ZhipuAI GLM-4V** - Fallback AI Vision OCR
 - **Anthropic Claude Vision** - Secondary fallback AI Vision OCR
 - **Spatie Media Library** - Správa souborů
-- **Spatie Browsershot** - Generování PDF z HTML (Puppeteer)
+- **Imagick** - Konverze obrázků na PDF (300 DPI kvalita)
+- **DomPDF** - Generování PDF z HTML
 - **Smalot PDF Parser** - Parsování PDF textu
 - **Symfony DomCrawler** - Web scraping
 
@@ -406,52 +387,9 @@ sudo supervisorctl restart horizon
 
 Aktualizujte `SCRAPER_USER_AGENT` v `.env` souboru na nejnovější verzi Chrome z: https://www.whatismybrowser.com/guides/the-latest-user-agent/chrome
 
-### Browsershot: "libnspr4.so: cannot open shared object file"
+## Historie změn
 
-Chrome/Puppeteer dependencies chybí. Nainstalujte je podle sekce **Instalace → Systémové závislosti**.
-
-```bash
-# Ubuntu 24.04+
-sudo apt-get install -y libnspr4 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-    libxfixes3 libxrandr2 libgbm1 libasound2t64
-
-# Ubuntu <24.04: Použijte 'libasound2' místo 'libasound2t64'
-```
-
-Po instalaci restartujte Horizon:
-
-```bash
-php artisan horizon:terminate
-# Horizon daemon se automaticky restartuje přes Supervisor
-```
-
-## 📝 Poslední Změny
-
-### v2.1.0 (2026-01-06) - Vylepšená Detekce Portrétů
-
-**Dvou-fázová detekce fotografií:**
-- ✅ Implementována two-phase photo detection (main + photo-only fallback)
-- ✅ Photo-only režim s high-sensitivity prompt pro všechny providery
-- ✅ Automatické padding removal (top=1% if Y<8%, side=1%, bottom=1%)
-- ✅ Gemini temperature config (main=0.3, photo-only=0.5)
-- ✅ Detection rate zvýšena z ~66% na >95%
-
-**Google Gemini API integrace:**
-- ✅ Přidán Gemini 2.0 Flash jako primární vision provider
-- ✅ Konfigurovatelný fallback chain: Gemini → ZhipuAI → Anthropic
-- ✅ Rychlejší zpracování (~10-14s per parte)
-- ✅ Podpora PDF i JPG formátů
-
-**Download Retry Mechanismus:**
-- ✅ 3-attempt retry s exponential backoff (2s, 4s, 6s)
-- ✅ Retry pro PDF/image download selhání
-- ✅ Lepší handling network errors
-
-**Commits:**
-- `ea75890` - Improve portrait photo detection with two-phase extraction and auto-padding
-- `b6988f4` - Add Gemini API support and implement download retry mechanism
-- `c363906` - Limit parte download schedule to weekdays only
+Viz [CHANGELOG.md](CHANGELOG.md) pro kompletní historii změn.
 
 ## Licence
 

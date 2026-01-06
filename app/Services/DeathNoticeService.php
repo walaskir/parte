@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Imagick;
-use Spatie\Browsershot\Browsershot;
 
 class DeathNoticeService
 {
@@ -20,6 +19,13 @@ class DeathNoticeService
         'pshajdukova' => PSHajdukovaScraper::class,
         'psbk' => PSBKScraper::class,
     ];
+
+    /**
+     * Constructor with dependency injection
+     */
+    public function __construct(
+        private PdfGeneratorService $pdfGenerator
+    ) {}
 
     /**
      * Get available scraper source keys
@@ -270,19 +276,19 @@ class DeathNoticeService
     }
 
     /**
-     * Generate HTML-based PDF
+     * Generate HTML-based PDF using DomPDF
      */
     private function generateHtmlPdf(array $data, string $outputPath): bool
     {
         try {
             $html = view('pdf.death-notice', $data)->render();
 
-            Browsershot::html($html)
-                ->format('A4')
-                ->margins(20, 20, 20, 20)
-                ->save($outputPath);
-
-            return true;
+            return $this->pdfGenerator->convertHtmlToPdf($html, $outputPath, [
+                'margin-top' => 20,
+                'margin-right' => 20,
+                'margin-bottom' => 20,
+                'margin-left' => 20,
+            ]);
         } catch (\Exception $e) {
             Log::error("Error generating HTML PDF: {$e->getMessage()}");
 
@@ -315,7 +321,7 @@ class DeathNoticeService
     }
 
     /**
-     * Convert image to PDF using Browsershot
+     * Convert image to PDF using Imagick
      */
     private function convertImageToPdf(string $imageUrl, string $outputPath, ?DeathNotice $notice = null): bool
     {
@@ -342,14 +348,6 @@ class DeathNoticeService
 
                 $imageContent = $response->body();
 
-                // Determine image type from URL or content
-                $imageType = 'image/jpeg';
-                if (str_contains($imageUrl, '.png')) {
-                    $imageType = 'image/png';
-                } elseif (str_contains($imageUrl, '.gif')) {
-                    $imageType = 'image/gif';
-                }
-
                 // Save temporary image for OCR processing via queue
                 if ($notice) {
                     $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_image_').'.jpg');
@@ -361,30 +359,19 @@ class DeathNoticeService
                     Log::info("Dispatched ExtractImageParteJob for PS BK notice {$notice->hash}");
                 }
 
-                // Encode image as base64
-                $base64Image = base64_encode($imageContent);
-                $dataUri = "data:{$imageType};base64,{$base64Image}";
+                // Save to temp file for PDF conversion
+                $tempPath = storage_path('app/private/temp/'.uniqid('parte_image_').'.tmp');
+                file_put_contents($tempPath, $imageContent);
 
-                $html = "
-                    <html>
-                    <head>
-                        <style>
-                            body { margin: 0; padding: 0; }
-                            img { width: 100%; height: auto; }
-                        </style>
-                    </head>
-                    <body>
-                        <img src='{$dataUri}' />
-                    </body>
-                    </html>
-                ";
+                // Convert using new Imagick-based service
+                $result = $this->pdfGenerator->convertImageToPdf($tempPath, $outputPath);
 
-                Browsershot::html($html)
-                    ->format('A4')
-                    ->margins(0, 0, 0, 0)
-                    ->save($outputPath);
+                // Cleanup temp file
+                if (file_exists($tempPath)) {
+                    unlink($tempPath);
+                }
 
-                return true;
+                return $result;
 
             } catch (\Exception $e) {
                 Log::warning("Error converting image to PDF (attempt {$attempt}/{$maxRetries}): {$e->getMessage()}");

@@ -42,6 +42,7 @@ php artisan parte:process-existing --extract-portraits --force # Re-extract ALL
 **Core Domain Files:**
 - `app/Models/DeathNotice.php` - Death notice model with announcement_text field
 - `app/Services/DeathNoticeService.php` - Orchestrates scraping, storage, PDF generation
+- `app/Services/PdfGeneratorService.php` - PDF generation using Imagick (images) and DomPDF (HTML)
 - `app/Services/VisionOcrService.php` - AI Vision extraction (ZhipuAI GLM-4V → Anthropic Claude fallback)
 - `app/Services/Scrapers/*Scraper.php` - Individual scrapers (PSBKScraper, PSHajdukovaScraper, SadovyJanScraper)
 - `app/Jobs/ExtractImageParteJob.php` - Extract name + funeral date + announcement_text from images (queue: extraction)
@@ -101,6 +102,52 @@ try {
 
 ## 5. Media & External Services
 
+### PDF Generation (PdfGeneratorService)
+**Service:** `app/Services/PdfGeneratorService.php` handles all PDF generation
+
+**Image → PDF (Imagick):**
+```php
+// Uses Imagick for high-quality image-to-PDF conversion
+$this->pdfGenerator->convertImageToPdf($imagePath, $outputPath);
+
+// Implementation details:
+// - 300 DPI quality (maximum quality for OCR)
+// - JPEG compression quality 85
+// - A4 format (2480x3508 pixels at 300 DPI)
+// - Centers image on white canvas
+// - Auto-creates output directories
+// - Typical output: <600KB for standard images
+```
+
+**HTML → PDF (DomPDF):**
+```php
+// Uses DomPDF for HTML-based PDFs (death notice announcements)
+$this->pdfGenerator->convertHtmlToPdf($html, $outputPath, [
+    'top' => 20,
+    'right' => 20,
+    'bottom' => 20,
+    'left' => 20,
+]);
+
+// Implementation details:
+// - A4 paper format
+// - Built-in compression enabled
+// - Remote resources disabled (security)
+// - DPI 96 (readable + smaller file size)
+```
+
+**Download & Convert:**
+```php
+// Downloads image from URL and converts to PDF
+$this->pdfGenerator->downloadAndConvertToPdf($imageUrl, $outputPath);
+
+// Features:
+// - 3 retry attempts with exponential backoff
+// - 30-second HTTP timeout
+// - Guaranteed temp file cleanup
+// - Comprehensive error logging
+```
+
 ### PDF → JPG Conversion (Imagick)
 ```php
 $imagick = new Imagick();
@@ -155,7 +202,7 @@ $imagick->destroy();
 
 ## 6. Error Handling
 
-- Wrap risky operations in `try/catch` (HTTP, Browsershot, DB transactions, AI API calls)
+- Wrap risky operations in `try/catch` (HTTP, Imagick, DB transactions, AI API calls)
 - Log errors: `Log::error()` or `Log::warning()` with context
 - Never use empty `catch` blocks
 - Return meaningful exit codes from artisan commands
@@ -319,6 +366,14 @@ protected function isAccessible(User $user, ?string $path = null): bool
 
 ## Enums
 - Typically, keys in an Enum should be TitleCase. For example: `FavoritePerson`, `BestLake`, `Monthly`.
+
+
+=== herd rules ===
+
+## Laravel Herd
+
+- The application is served by Laravel Herd and will be available at: https?://[kebab-case-project-dir].test. Use the `get-absolute-url` tool to generate URLs for the user to ensure valid URLs.
+- You must not run any commands to make the site available via HTTP(s). It is _always_ available through Laravel Herd.
 
 
 === tests rules ===

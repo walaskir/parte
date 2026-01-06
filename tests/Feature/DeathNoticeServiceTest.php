@@ -2,12 +2,14 @@
 
 use App\Models\DeathNotice;
 use App\Services\DeathNoticeService;
+use App\Services\PdfGeneratorService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
 test('service can get available sources', function () {
-    $service = new DeathNoticeService;
+    $pdfGenerator = new PdfGeneratorService;
+    $service = new DeathNoticeService($pdfGenerator);
     $sources = $service->getAvailableSources();
 
     expect($sources)->toBeArray()
