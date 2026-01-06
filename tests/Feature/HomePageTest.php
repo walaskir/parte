@@ -178,7 +178,7 @@ test('homepage hides PDF button when PDF media does not exist', function () {
         ->assertSee('Jan Novák');
 });
 
-test('homepage displays maximum 15 death notices', function () {
+test('homepage displays maximum 15 death notices on first page', function () {
     // Create 20 death notices
     DeathNotice::factory()->count(20)->create();
 
@@ -197,4 +197,89 @@ test('homepage displays empty state when no death notices exist', function () {
     $this->get('/')
         ->assertOk()
         ->assertSee('Momentálně nejsou k dispozici žádná parte.');
+});
+
+test('homepage pagination displays second page with remaining records', function () {
+    // Create 20 death notices
+    DeathNotice::factory()->count(20)->create();
+
+    // First page should have 15 records
+    $response = $this->get('/');
+    $response->assertOk();
+    $content = $response->getContent();
+    $articleCount = substr_count($content, '<article class=');
+    expect($articleCount)->toBe(15);
+
+    // Second page should have 5 remaining records
+    $response = $this->get('/?page=2');
+    $response->assertOk();
+    $content = $response->getContent();
+    $articleCount = substr_count($content, '<article class=');
+    expect($articleCount)->toBe(5);
+});
+
+test('homepage pagination maintains sorting across pages', function () {
+    // Create 20 death notices with different dates
+    $notices = collect();
+    for ($i = 20; $i >= 1; $i--) {
+        $notices->push(DeathNotice::factory()->create([
+            'full_name' => "Person {$i}",
+            'death_date' => now()->subDays($i)->format('Y-m-d'),
+        ]));
+    }
+
+    // First page should have the 15 most recent (Person 1 to Person 15)
+    $response = $this->get('/');
+    $response->assertOk()
+        ->assertSee('Person 1')
+        ->assertSee('Person 15')
+        ->assertDontSee('Person 16');
+
+    // Second page should have the older ones (Person 16 to Person 20)
+    $response = $this->get('/?page=2');
+    $response->assertOk()
+        ->assertSee('Person 16')
+        ->assertSee('Person 20')
+        ->assertDontSee('Person 15');
+});
+
+test('homepage returns 404 for non-existent page', function () {
+    // Create only 5 death notices (only 1 page)
+    DeathNotice::factory()->count(5)->create();
+
+    // Page 2 should return 404
+    $this->get('/?page=2')
+        ->assertNotFound()
+        ->assertSee('Stránka neexistuje');
+
+    // Page 999 should also return 404
+    $this->get('/?page=999')
+        ->assertNotFound()
+        ->assertSee('Stránka neexistuje');
+});
+
+test('homepage shows pagination links when more than 15 records exist', function () {
+    // Create 20 death notices
+    DeathNotice::factory()->count(20)->create();
+
+    $response = $this->get('/');
+
+    $response->assertOk();
+
+    // Check for pagination elements (look for page navigation)
+    $content = $response->getContent();
+    expect($content)->toContain('page=2');
+});
+
+test('homepage hides pagination links when 15 or fewer records exist', function () {
+    // Create exactly 15 death notices
+    DeathNotice::factory()->count(15)->create();
+
+    $response = $this->get('/');
+
+    $response->assertOk();
+
+    // Check that pagination links are not present
+    $content = $response->getContent();
+    expect($content)->not->toContain('page=2');
 });

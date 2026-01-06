@@ -76,6 +76,13 @@
                 @endforelse
             </div>
 
+            <!-- Pagination -->
+            @if($deathNotices->hasPages())
+                <div class="mt-8 flex justify-center">
+                    {{ $deathNotices->links() }}
+                </div>
+            @endif
+
             <!-- Footer -->
             <footer class="text-center mt-12 pt-8 border-t border-gray-300">
                 <p class="text-gray-600">
