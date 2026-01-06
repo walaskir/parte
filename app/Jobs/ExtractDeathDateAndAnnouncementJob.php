@@ -16,6 +16,11 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
     use InteractsWithQueue, Queueable, SerializesModels;
 
     /**
+     * Delete the job if its models no longer exist.
+     */
+    public bool $deleteWhenMissingModels = true;
+
+    /**
      * Number of times to retry the job.
      */
     public int $tries = 3;
