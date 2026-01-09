@@ -8,9 +8,21 @@ use Illuminate\Support\Facades\Log;
 
 class VisionOcrService
 {
-    private string $primaryProvider;
+    private string $textProvider;
 
-    private ?string $fallbackProvider;
+    private ?string $textProviderModel;
+
+    private ?string $textFallbackProvider;
+
+    private ?string $textFallbackModel;
+
+    private string $photoProvider;
+
+    private ?string $photoProviderModel;
+
+    private ?string $photoFallbackProvider;
+
+    private ?string $photoFallbackModel;
 
     private ?string $geminiApiKey;
 
@@ -18,30 +30,129 @@ class VisionOcrService
 
     private ?string $anthropicApiKey;
 
+    private ?string $abacusAiApiKey;
+
     public function __construct()
     {
-        $this->primaryProvider = config('services.vision.provider', 'gemini');
-        $this->fallbackProvider = config('services.vision.fallback_provider');
+        // BREAKING CHANGE: Validate configuration
+        $this->validateConfiguration();
 
+        // Parse new provider/model syntax
+        [$this->textProvider, $this->textProviderModel] = $this->parseProvider(
+            config('services.vision.text_provider')
+        );
+        [$this->textFallbackProvider, $this->textFallbackModel] = $this->parseProvider(
+            config('services.vision.text_fallback') ?? ''
+        );
+        [$this->photoProvider, $this->photoProviderModel] = $this->parseProvider(
+            config('services.vision.photo_provider')
+        );
+        [$this->photoFallbackProvider, $this->photoFallbackModel] = $this->parseProvider(
+            config('services.vision.photo_fallback') ?? ''
+        );
+
+        // Load API keys
         $this->geminiApiKey = config('services.gemini.api_key');
         $this->zhipuaiApiKey = config('services.zhipuai.api_key');
         $this->anthropicApiKey = config('services.anthropic.api_key');
+        $this->abacusAiApiKey = config('services.abacusai.api_key');
 
+        // Validate at least one provider configured
         $configuredProviders = $this->getAllConfiguredProviders();
 
         if (empty($configuredProviders)) {
-            throw new Exception('No vision providers configured. Please set at least one provider API key (GEMINI_API_KEY, ZHIPUAI_API_KEY, or ANTHROPIC_API_KEY) in .env file.');
+            throw new Exception('No vision providers configured. Please set at least one provider API key (GEMINI_API_KEY, ZHIPUAI_API_KEY, ANTHROPIC_API_KEY, or ABACUSAI_API_KEY) in .env file.');
         }
 
-        if (! $this->isProviderConfigured($this->primaryProvider)) {
-            throw new Exception("Primary vision provider '{$this->primaryProvider}' is not configured. Please set the API key in .env file or change VISION_PROVIDER.");
+        // Validate text provider is configured
+        if (! $this->isProviderConfigured($this->textProvider)) {
+            throw new Exception("Text provider '{$this->textProvider}' is not configured. Please set the API key in .env file.");
+        }
+
+        // Validate photo provider is configured
+        if (! $this->isProviderConfigured($this->photoProvider)) {
+            throw new Exception("Photo provider '{$this->photoProvider}' is not configured. Please set the API key in .env file.");
         }
     }
 
     /**
-     * Main extraction method - delegates to configured providers
+     * Validate configuration and handle deprecated syntax
+     */
+    private function validateConfiguration(): void
+    {
+        $oldProvider = config('services.vision.provider');
+        $oldFallback = config('services.vision.fallback_provider');
+
+        // Production: Throw exception if old syntax detected
+        if (app()->environment('production')) {
+            if ($oldProvider || $oldFallback) {
+                throw new Exception(
+                    'BREAKING CHANGE: VISION_PROVIDER syntax deprecated. '.
+                    'Update .env to use new format: '.
+                    'VISION_TEXT_PROVIDER=abacusai/gemini-3-flash '.
+                    'VISION_PHOTO_PROVIDER=abacusai/gemini-3-flash. '.
+                    'See .env.example for details. (Version 2.0)'
+                );
+            }
+        }
+
+        // Local/testing: Auto-convert with warning
+        if (app()->environment(['local', 'testing'])) {
+            if ($oldProvider && ! config('services.vision.text_provider')) {
+                Log::warning('AUTO-CONVERTING deprecated VISION_PROVIDER to new format', [
+                    'old' => $oldProvider,
+                    'new' => $oldProvider,
+                ]);
+
+                config(['services.vision.text_provider' => $oldProvider]);
+                config(['services.vision.photo_provider' => $oldProvider]);
+            }
+        }
+
+        // Validate new syntax exists
+        if (! config('services.vision.text_provider') || ! config('services.vision.photo_provider')) {
+            throw new Exception(
+                'VISION_TEXT_PROVIDER and VISION_PHOTO_PROVIDER required. '.
+                'See .env.example for new configuration syntax.'
+            );
+        }
+    }
+
+    /**
+     * Parse provider string: "abacusai/gemini-3-flash" or "anthropic"
+     *
+     * @return array{string, string|null} [provider, model]
+     */
+    private function parseProvider(string $providerString): array
+    {
+        if (empty($providerString)) {
+            return ['', null];
+        }
+
+        if (str_contains($providerString, '/')) {
+            [$provider, $model] = explode('/', $providerString, 2);
+
+            return [trim($provider), trim($model)];
+        }
+
+        return [trim($providerString), null];
+    }
+
+    /**
+     * Extract text data (name, dates, announcement, opening_quote) from image
+     *
+     * @deprecated Use extractTextFromImage() or extractPhotoFromImage() instead
      */
     public function extractFromImage(string $imagePath, bool $extractDeathDate = false, ?string $knownName = null): ?array
+    {
+        // Backward compatibility wrapper - delegates to new method
+        return $this->extractTextFromImage($imagePath, $knownName);
+    }
+
+    /**
+     * Extract text data (name, dates, announcement, opening_quote) from image
+     */
+    public function extractTextFromImage(string $imagePath, ?string $knownName = null): ?array
     {
         try {
             if (! file_exists($imagePath)) {
@@ -50,85 +161,55 @@ class VisionOcrService
                 return null;
             }
 
-            Log::info('VisionOcrService: Starting extraction', [
-                'image_path' => $imagePath,
-                'extract_mode' => $extractDeathDate ? 'death_date' : 'name+funeral_date',
-                'known_name' => $knownName,
-                'primary_provider' => $this->primaryProvider,
-                'fallback_provider' => $this->fallbackProvider,
+            Log::info('VisionOcrService: Text extraction starting', [
+                'text_provider' => $this->textProvider,
+                'text_model' => $this->textProviderModel,
             ]);
 
-            // Try primary provider
-            $result = $this->extractWithProvider($this->primaryProvider, $imagePath, $knownName);
+            // Try primary text provider
+            $result = $this->extractTextWithProvider(
+                $this->textProvider,
+                $this->textProviderModel,
+                $imagePath,
+                $knownName
+            );
 
-            if ($result && $this->validateExtraction($result, $extractDeathDate)) {
-                Log::info('VisionOcrService: Primary provider extraction successful', [
-                    'provider' => $this->primaryProvider,
+            if ($result && $this->validateTextExtraction($result)) {
+                Log::info('VisionOcrService: Text extraction successful', [
+                    'provider' => $this->textProvider,
                 ]);
-
-                // Two-phase detection: If no photo detected, try photo-only mode
-                if (! ($result['has_photo'] ?? false)) {
-                    Log::info('VisionOcrService: No photo detected, trying photo-only extraction mode');
-
-                    $photoResult = $this->extractPhotoOnly($imagePath);
-
-                    if ($photoResult && ($photoResult['has_photo'] ?? false)) {
-                        Log::info('VisionOcrService: Photo-only mode detected photo', [
-                            'photo_bbox' => $photoResult['photo_bbox'] ?? null,
-                        ]);
-
-                        // Merge photo data into main result
-                        $result['has_photo'] = $photoResult['has_photo'];
-                        $result['photo_bbox'] = $photoResult['photo_bbox'] ?? null;
-                        $result['photo_description'] = $photoResult['photo_description'] ?? null;
-                    }
-                }
 
                 return $result;
             }
 
-            // Try fallback provider
-            if ($this->fallbackProvider && $this->isProviderConfigured($this->fallbackProvider)) {
-                Log::warning('VisionOcrService: Primary provider failed, trying fallback', [
-                    'primary' => $this->primaryProvider,
-                    'fallback' => $this->fallbackProvider,
+            // Try fallback
+            if ($this->textFallbackProvider && $this->isProviderConfigured($this->textFallbackProvider)) {
+                Log::warning('VisionOcrService: Text extraction fallback', [
+                    'fallback_provider' => $this->textFallbackProvider,
                 ]);
 
-                $result = $this->extractWithProvider($this->fallbackProvider, $imagePath, $knownName);
+                $result = $this->extractTextWithProvider(
+                    $this->textFallbackProvider,
+                    $this->textFallbackModel,
+                    $imagePath,
+                    $knownName
+                );
 
-                if ($result && $this->validateExtraction($result, $extractDeathDate)) {
-                    Log::info('VisionOcrService: Fallback provider extraction successful', [
-                        'provider' => $this->fallbackProvider,
+                if ($result && $this->validateTextExtraction($result)) {
+                    Log::info('VisionOcrService: Fallback text extraction successful', [
+                        'provider' => $this->textFallbackProvider,
                     ]);
 
                     return $result;
                 }
             }
 
-            // Try all remaining configured providers as last resort
-            $triedProviders = [$this->primaryProvider, $this->fallbackProvider];
-            $remainingProviders = array_diff($this->getAllConfiguredProviders(), $triedProviders);
-
-            foreach ($remainingProviders as $provider) {
-                Log::warning('VisionOcrService: Trying remaining provider', ['provider' => $provider]);
-
-                $result = $this->extractWithProvider($provider, $imagePath, $knownName);
-
-                if ($result && $this->validateExtraction($result, $extractDeathDate)) {
-                    Log::info('VisionOcrService: Remaining provider extraction successful', [
-                        'provider' => $provider,
-                    ]);
-
-                    return $result;
-                }
-            }
-
-            Log::error('VisionOcrService: All extraction methods failed', ['image_path' => $imagePath]);
+            Log::error('VisionOcrService: All text extraction methods failed', ['image_path' => $imagePath]);
 
             return null;
 
         } catch (Exception $e) {
-            Log::error('VisionOcrService extraction failed', [
+            Log::error('VisionOcrService text extraction failed', [
                 'error' => $e->getMessage(),
                 'image_path' => $imagePath,
             ]);
@@ -138,16 +219,193 @@ class VisionOcrService
     }
 
     /**
-     * Extract with specific provider
+     * Extract photo bounding box from image
      */
-    private function extractWithProvider(string $provider, string $imagePath, ?string $knownName): ?array
+    public function extractPhotoFromImage(string $imagePath): ?array
     {
+        try {
+            if (! file_exists($imagePath)) {
+                return ['has_photo' => false];
+            }
+
+            Log::info('VisionOcrService: Photo extraction starting', [
+                'photo_provider' => $this->photoProvider,
+                'photo_model' => $this->photoProviderModel,
+            ]);
+
+            // Try primary photo provider
+            $result = $this->extractPhotoWithProvider(
+                $this->photoProvider,
+                $this->photoProviderModel,
+                $imagePath
+            );
+
+            if ($result && ($result['has_photo'] ?? false)) {
+                Log::info('VisionOcrService: Photo extraction successful', [
+                    'provider' => $this->photoProvider,
+                ]);
+
+                return $result;
+            }
+
+            // Try fallback
+            if ($this->photoFallbackProvider && $this->isProviderConfigured($this->photoFallbackProvider)) {
+                Log::warning('VisionOcrService: Photo extraction fallback', [
+                    'fallback_provider' => $this->photoFallbackProvider,
+                ]);
+
+                $result = $this->extractPhotoWithProvider(
+                    $this->photoFallbackProvider,
+                    $this->photoFallbackModel,
+                    $imagePath
+                );
+
+                if ($result && ($result['has_photo'] ?? false)) {
+                    Log::info('VisionOcrService: Fallback photo extraction successful', [
+                        'provider' => $this->photoFallbackProvider,
+                    ]);
+
+                    return $result;
+                }
+            }
+
+            return ['has_photo' => false];
+
+        } catch (Exception $e) {
+            Log::error('VisionOcrService photo extraction failed', [
+                'error' => $e->getMessage(),
+                'image_path' => $imagePath,
+            ]);
+
+            return ['has_photo' => false];
+        }
+    }
+
+    /**
+     * Extract text with specific provider
+     */
+    private function extractTextWithProvider(
+        string $provider,
+        ?string $model,
+        string $imagePath,
+        ?string $knownName
+    ): ?array {
         return match ($provider) {
+            'abacusai' => $this->extractTextWithAbacusAI($imagePath, $model, $knownName),
             'gemini' => $this->extractWithGemini($imagePath, $knownName),
             'zhipuai' => $this->extractWithZhipuAI($imagePath, $knownName),
             'anthropic' => $this->extractWithAnthropic($imagePath, $knownName),
-            default => throw new Exception("Unknown vision provider: {$provider}")
+            default => throw new Exception("Unknown provider: {$provider}")
         };
+    }
+
+    /**
+     * Extract photo with specific provider
+     */
+    private function extractPhotoWithProvider(
+        string $provider,
+        ?string $model,
+        string $imagePath
+    ): ?array {
+        return match ($provider) {
+            'abacusai' => $this->extractPhotoWithAbacusAI($imagePath, $model),
+            'gemini' => $this->extractPhotoOnlyWithGemini($imagePath),
+            'zhipuai' => $this->extractPhotoOnlyWithZhipuAI($imagePath),
+            'anthropic' => $this->extractPhotoOnlyWithAnthropic($imagePath),
+            default => throw new Exception("Unknown provider: {$provider}")
+        };
+    }
+
+    /**
+     * Extract text using Abacus.AI API
+     */
+    private function extractTextWithAbacusAI(
+        string $imagePath,
+        ?string $modelKey,
+        ?string $knownName
+    ): ?array {
+        if (! $this->abacusAiApiKey) {
+            return null;
+        }
+
+        try {
+            $service = new AbacusAiVisionService($this->abacusAiApiKey);
+
+            // Convert model key to Abacus constant
+            $model = $this->getAbacusAiModel($modelKey);
+
+            $result = $service->extractDeathNotice($imagePath, $model);
+
+            // Add required fields for compatibility
+            $result['has_photo'] = false; // Handled separately
+
+            return $result;
+        } catch (Exception $e) {
+            Log::error('Abacus.AI text extraction failed', [
+                'error' => $e->getMessage(),
+                'model' => $modelKey,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Extract photo using Abacus.AI API
+     */
+    private function extractPhotoWithAbacusAI(string $imagePath, ?string $modelKey): ?array
+    {
+        if (! $this->abacusAiApiKey) {
+            return null;
+        }
+
+        try {
+            $service = new AbacusAiVisionService($this->abacusAiApiKey);
+            $model = $this->getAbacusAiModel($modelKey);
+
+            $result = $service->detectPortrait($imagePath, $model);
+
+            // Convert photo_bounds to photo_bbox format for compatibility
+            if ($result['has_photo'] && isset($result['photo_bounds'])) {
+                $result['photo_bbox'] = [
+                    'x_percent' => $result['photo_bounds']['x'],
+                    'y_percent' => $result['photo_bounds']['y'],
+                    'width_percent' => $result['photo_bounds']['width'],
+                    'height_percent' => $result['photo_bounds']['height'],
+                ];
+            }
+
+            return $result;
+        } catch (Exception $e) {
+            Log::error('Abacus.AI photo extraction failed', [
+                'error' => $e->getMessage(),
+                'model' => $modelKey,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Map model key to Abacus.AI constant
+     */
+    private function getAbacusAiModel(?string $modelKey): string
+    {
+        if (! $modelKey) {
+            return AbacusAiVisionService::MODEL_GEMINI_3_FLASH;
+        }
+
+        $models = config('services.abacusai.models', []);
+
+        return $models[$modelKey] ?? AbacusAiVisionService::MODEL_GEMINI_3_FLASH;
+    }
+
+    /**
+     * Validate text extraction result
+     */
+    private function validateTextExtraction(array $result): bool
+    {
+        return isset($result['full_name']) && $result['full_name'];
     }
 
     /**
@@ -159,6 +417,7 @@ class VisionOcrService
             'gemini' => ! empty($this->geminiApiKey),
             'zhipuai' => ! empty($this->zhipuaiApiKey),
             'anthropic' => ! empty($this->anthropicApiKey),
+            'abacusai' => ! empty($this->abacusAiApiKey),
             default => false
         };
     }
@@ -180,6 +439,10 @@ class VisionOcrService
 
         if ($this->isProviderConfigured('anthropic')) {
             $providers[] = 'anthropic';
+        }
+
+        if ($this->isProviderConfigured('abacusai')) {
+            $providers[] = 'abacusai';
         }
 
         return $providers;
@@ -452,61 +715,6 @@ class VisionOcrService
 
         } catch (Exception $e) {
             Log::error('Anthropic extraction failed', [
-                'error' => $e->getMessage(),
-                'image_path' => $imagePath,
-            ]);
-
-            return null;
-        }
-    }
-
-    /**
-     * Photo-only extraction mode - focused solely on detecting portrait photos.
-     * Used as fallback when main extraction fails to detect photo.
-     *
-     * @param  string  $imagePath  Path to parte image
-     * @return array|null Result with has_photo, photo_bbox, photo_description or null
-     */
-    private function extractPhotoOnly(string $imagePath): ?array
-    {
-        try {
-            // Try with primary provider first
-            $providers = [$this->primaryProvider];
-
-            // Add fallback and other providers
-            if ($this->fallbackProvider && $this->isProviderConfigured($this->fallbackProvider)) {
-                $providers[] = $this->fallbackProvider;
-            }
-
-            $remainingProviders = array_diff($this->getAllConfiguredProviders(), $providers);
-            $providers = array_merge($providers, $remainingProviders);
-
-            foreach ($providers as $provider) {
-                Log::info('VisionOcrService: Photo-only mode trying provider', ['provider' => $provider]);
-
-                $result = match ($provider) {
-                    'gemini' => $this->extractPhotoOnlyWithGemini($imagePath),
-                    'zhipuai' => $this->extractPhotoOnlyWithZhipuAI($imagePath),
-                    'anthropic' => $this->extractPhotoOnlyWithAnthropic($imagePath),
-                    default => null
-                };
-
-                if ($result && ($result['has_photo'] ?? false)) {
-                    Log::info('VisionOcrService: Photo-only mode found photo', [
-                        'provider' => $provider,
-                        'bbox' => $result['photo_bbox'] ?? null,
-                    ]);
-
-                    return $result;
-                }
-            }
-
-            Log::warning('VisionOcrService: Photo-only mode failed with all providers');
-
-            return null;
-
-        } catch (Exception $e) {
-            Log::error('VisionOcrService: Photo-only extraction failed', [
                 'error' => $e->getMessage(),
                 'image_path' => $imagePath,
             ]);
@@ -789,6 +997,7 @@ Analyze this death notice (parte/obituary) image. Extract ALL available informat
 
 {
   \"full_name\": \"Full name of the deceased (first name + last name, e.g. 'Jan Novák')\",
+  \"opening_quote\": \"Poetic/memorial quote at document start (or null if none)\",
   \"death_date\": \"Date of death in YYYY-MM-DD format (or null if not found)\",
   \"funeral_date\": \"Date of funeral ceremony in YYYY-MM-DD format (or null if not found)\",
   \"announcement_text\": \"Complete announcement text including funeral details (or null if not extractable)\",
@@ -827,6 +1036,51 @@ EXTRACTION RULES:
    - PRESERVE Czech/Polish diacritics: 'Novák' not 'Novak', 'Dvořák' not 'Dvorak'
    - Examples: 'Jan Novák', 'Marie Dvořáková', 'Józef Wójcik', 'Anna Wałęsa'
 
+1.5. OPENING QUOTE (SEPARATE JSON FIELD - CRITICAL):
+   ⚠️ THIS MUST BE EXTRACTED TO A SEPARATE FIELD, NOT INCLUDED IN ANNOUNCEMENT_TEXT ⚠️
+   
+   WHAT TO EXTRACT:
+   - Poetic, memorial, or biblical quotes at the VERY START of document
+   - Appears BEFORE main announcement phrases: \"Z głębokim smutkiem...\", \"S hlubokým smutkem...\"
+   
+   COMMON EXAMPLES:
+   Polish quotes:
+   * \"Będę żyć dalej w sercach tych, którzy mnie kochali\"
+   * \"Kto Cię znał, ten Cię ceni i pamięta\"
+   * \"Odszedłeś, ale pozostajesz w naszych sercach\"
+   
+   Czech quotes:
+   * \"Kdo Tě znal, ten Tě ctít musí\"
+   * \"Zůstaneš navždy v našich srdcích\"
+   * \"Čas plyne, ale vzpomínky zůstávají\"
+   
+   ⚠️ CRITICAL EXTRACTION RULES:
+   - ✅ EXTRACT to \"opening_quote\" JSON field (SEPARATE from announcement_text)
+   - ✅ announcement_text must START from \"Z głębokim smutkiem...\" (AFTER opening quote)
+   - ❌ DO NOT include opening quote in \"announcement_text\" field
+   - ❌ DO NOT return null if opening quote clearly exists
+   
+   VALIDATION:
+   - Maximum reasonable length: ~500 characters
+   - If \"quote\" is longer than 500 chars: it's likely the full announcement (return null)
+   - If no opening quote exists (announcement starts directly): return null
+   
+   EXAMPLE OF CORRECT vs WRONG EXTRACTION:
+   
+   Document text: \"Będę żyć dalej w sercach tych, którzy mnie kochali. Z głębokim smutkiem...\"
+   
+   ✅ CORRECT:
+   {
+     \"opening_quote\": \"Będę żyć dalej w sercach tych, którzy mnie kochali\",
+     \"announcement_text\": \"Z głębokim smutkiem i żalem zawiadamiamy...\"
+   }
+   
+   ❌ WRONG (opening_quote is null, included in announcement instead):
+   {
+     \"opening_quote\": null,
+     \"announcement_text\": \"Będę żyć dalej w sercach... Z głębokim smutkiem...\"
+   }
+
 2. DEATH DATE (CRITICAL - DATE VALIDATION):
    - Keywords: 'zemřel/a', '†', 'zmarł/a', 'data śmierci', 'dne', 'dnia'
    - Formats: 'DD.MM.YYYY', 'DD.MM.YY', 'D. MONTH YYYY' (e.g., '31. prosince 2025')
@@ -842,20 +1096,73 @@ EXTRACTION RULES:
    - Convert to YYYY-MM-DD
    - Must be AFTER death_date (typically 3-14 days later)
 
-4. ANNOUNCEMENT TEXT:
-   - Extract complete announcement: opening → names → dates → funeral details → closing
-   - INCLUDE: Full text, relationships, funeral time/location/venue, ending phrases
-   - EXCLUDE: 
-     * Biblical verses BEFORE announcement
-     * Decorative borders
-     * Funeral service contact information (phone numbers, addresses of funeral homes)
-     * Business names/logos of funeral services
-   - END the text at phrases like: 'Zarmoucená rodina', 'Smutná rodina', 'Manžel a děti', 'Pozůstalí'
-   - Do NOT include contact details (phone, address, email) that appear AFTER family signature
-   - Fix OCR errors: 'nds'→'nás', remove garbage ('R ża ©')
+4. ANNOUNCEMENT TEXT (FAMILY ANNOUNCEMENT ONLY - NO OPENING QUOTE, NO BUSINESS INFO):
+   ⚠️ CRITICAL: DO NOT INCLUDE OPENING QUOTE HERE - it goes to opening_quote field ⚠️
+   
+   WHAT TO EXTRACT:
+   - Complete family announcement: names → dates → funeral details → family closing
+   - INCLUDE: Full text, relationships, funeral time/location/venue, family signature
+   
+   ❌ WHAT TO EXCLUDE (DO NOT INCLUDE):
+     * Opening quote (already extracted to opening_quote field - DO NOT REPEAT HERE)
+     * Biblical verses BEFORE main announcement
+     * Decorative borders, page numbers, design elements
+     * Funeral service business names (e.g., \"Jan Sadový Pohřební služba\", \"PSHAJDUKOVÁ, s.r.o.\")
+     * Contact information: phone (tel., mobil), addresses, emails, websites
+     * Business information that appears AFTER family signature
+   
+   📍 WHERE TO START (CRITICAL):
+   - ✅ START from: \"Z głębokim smutkiem...\" OR \"S hlubokým smutkem...\"
+   - ✅ This is AFTER the opening quote (if opening quote exists)
+   - ❌ DO NOT start with poetic quotes like \"Będę żyć dalej w sercach...\"
+   - ❌ DO NOT start with biblical verses
+   
+   EXAMPLE OF CORRECT START:
+   ✅ \"Z głębokim smutkiem i żalem zawiadamiamy rodzinę...\"
+   ✅ \"S hlubokým smutkem oznamujeme...\"
+   
+   EXAMPLE OF WRONG START (includes opening quote):
+   ❌ \"Będę żyć dalej w sercach tych, którzy mnie kochali. Z głębokim smutkiem...\"
+   
+   📍 WHERE TO END (CRITICAL):
+   - ✅ END at family signature phrases:
+     * Czech: 'Zarmoucená rodina', 'Smutná rodina', 'Manžel a děti', 'Pozůstalí', 'Rodina'
+     * Polish: 'Zasmucona rodzina', 'Smutna rodzina', 'Żona i dzieci', 'Rodzina'
+   - ✅ INCLUDE the family signature phrase in your extraction
+   - ✅ STOP EXTRACTION IMMEDIATELY after family signature
+   - ❌ DO NOT continue past family signature
+   - ❌ DO NOT include anything that appears AFTER family signature
+   
+   ⚠️ CONCRETE EXAMPLES OF CORRECT vs WRONG ENDINGS:
+   
+   EXAMPLE 1 - Polish announcement:
+   Full text: \"...pogrzeb odbędzie się w czwartek 9 stycznia 2026 roku o godzinie 14.00 z kościoła. Zasmucona rodzina Jan Sadový Pohřební služba Bystřice tel. 558352208 mobil: 602539388\"
+   
+   ✅ CORRECT EXTRACTION (stops at family signature):
+   \"...pogrzeb odbędzie się w czwartek 9 stycznia 2026 roku o godzinie 14.00 z kościoła. Zasmucona rodzina\"
+   
+   ❌ WRONG EXTRACTION (includes funeral business):
+   \"...Zasmucona rodzina Jan Sadový Pohřební služba Bystřice tel. 558352208 mobil: 602539388\"
+   
+   EXAMPLE 2 - Czech announcement:
+   Full text: \"...rozloučení proběhne v pátek v obřadní síni. Zarmoucená rodina. PSHAJDUKOVÁ, s.r.o., ul. 1.máje 172, Třinec, tel.: 558 339 296\"
+   
+   ✅ CORRECT EXTRACTION (stops at family signature):
+   \"...rozloučení proběhne v pátek v obřadní síni. Zarmoucená rodina\"
+   
+   ❌ WRONG EXTRACTION (includes funeral company):
+   \"...Zarmoucená rodina. PSHAJDUKOVÁ, s.r.o., ul. 1.máje 172, Třinec, tel.: 558 339 296\"
+   
+   WHY THIS MATTERS:
+   The funeral service footer is business information added by the funeral company for contact purposes.
+   Your job is to extract ONLY what the FAMILY wrote in their announcement, NOT the business contact info.
+   Think of it like a letter: you extract the letter content, not the letterhead/footer of the printing company.
+   
+   OTHER RULES:
+   - Fix OCR errors: 'nds'→'nás', 'zm arl'→'zmarł', remove garbage characters ('R ża ©')
    - CRITICAL: Preserve ALL Czech and Polish diacritics in the entire text
    - PRESERVE CORRECT NAME SPELLING (use known name if provided above)
-   - Return as continuous text with single spaces
+   - Return as continuous text with single spaces (collapse multiple spaces)
    - ALWAYS ensure the announcement ends with a period (.) - if missing, add it
 
 5. PHOTO DETECTION (EXECUTE PRIORITY #1 INSTRUCTIONS ABOVE):
@@ -881,6 +1188,17 @@ Example: Photo at top-left corner, 200px×250px in 800px×1000px image:
 }
 
 Languages: Czech or Polish
+
+⚠️ FINAL VALIDATION CHECKLIST - VERIFY BEFORE RETURNING JSON:
+
+✓ opening_quote field: Contains ONLY the opening quote text (or null if no quote exists)
+✓ opening_quote field: Is NOT duplicated in announcement_text
+✓ announcement_text field: Does NOT start with opening quote (starts with \"Z głębokim smutkiem...\" or similar)
+✓ announcement_text field: Does NOT end with funeral business names (\"Jan Sadový...\", \"PSHAJDUKOVÁ...\")
+✓ announcement_text field: Does NOT end with phone numbers (tel., mobil)
+✓ announcement_text field: Ends at family signature phrase (\"Zasmucona rodzina\", \"Zarmoucená rodina\", etc.)
+✓ full_name field: Does NOT include \"śp.\", \"Sp.\", or \"§p.\" prefix
+
 Return ONLY valid JSON, nothing else.";
     }
 
@@ -890,7 +1208,8 @@ Return ONLY valid JSON, nothing else.";
     private function cleanExtractionResult(array $json, ?string $knownName = null): array
     {
         $result = [
-            'full_name' => $json['full_name'] ?? null,
+            'full_name' => $this->cleanFullName($json['full_name'] ?? null),
+            'opening_quote' => $json['opening_quote'] ?? null,
             'death_date' => $json['death_date'] ?? null,
             'funeral_date' => $json['funeral_date'] ?? null,
             'announcement_text' => null,
@@ -909,8 +1228,19 @@ Return ONLY valid JSON, nothing else.";
             }
         }
 
+        // Validate opening_quote
+        if (isset($result['opening_quote']) && $result['opening_quote']) {
+            if (strlen($result['opening_quote']) > 500) {
+                Log::warning('Opening quote suspiciously long', [
+                    'length' => strlen($result['opening_quote']),
+                    'preview' => substr($result['opening_quote'], 0, 100),
+                ]);
+            }
+        }
+
         if (isset($json['announcement_text']) && $json['announcement_text']) {
             $cleaned = preg_replace('/\s+/', ' ', trim($json['announcement_text']));
+            $cleaned = $this->removeFuneralServiceSignature($cleaned);
 
             if (strlen($cleaned) < 50) {
                 Log::warning('AI returned suspiciously short announcement_text', [
@@ -996,6 +1326,60 @@ Return ONLY valid JSON, nothing else.";
         ];
 
         return strtr($text, $diacritics);
+    }
+
+    /**
+     * Clean full_name by removing Polish deceased prefix
+     */
+    private function cleanFullName(?string $name): ?string
+    {
+        if (! $name) {
+            return null;
+        }
+
+        // Remove Polish "śp." prefix (deceased marker)
+        // Also Czech/Slovak variants
+        $prefixes = ['śp. ', 'sp. ', 'ś.p. ', 'Śp. ', 'Sp. ', 'Ś.p. '];
+
+        foreach ($prefixes as $prefix) {
+            if (str_starts_with($name, $prefix)) {
+                $name = substr($name, strlen($prefix));
+                break; // Only remove one prefix
+            }
+        }
+
+        return trim($name);
+    }
+
+    /**
+     * Remove funeral service signatures and contact info from announcement text
+     */
+    private function removeFuneralServiceSignature(string $text): string
+    {
+        // Common patterns for funeral service signatures (case-insensitive, Unicode-aware)
+        $patterns = [
+            // Czech: "Pohřební služba..." + phone
+            '/pohřební služba.*?(?:tel\.?|mobil).*?[\d\s\-]{7,}/iu',
+
+            // Polish: "Zakład pogrzebowy..." + phone
+            '/zakład pogrzebowy.*?(?:tel\.?|mobil).*?[\d\s\-]{7,}/iu',
+
+            // Generic: Business with address + phone (e.g., "s.r.o., ul. Polní 90, Jablunkov, tel.: 558 357 404")
+            '/s\.r\.o\.,?\s+ul\.\s+[^,]+,\s+[^,]+,\s+tel\.?:?\s*[\d\s\-]{7,}/iu',
+
+            // Phone numbers after family signature (standalone)
+            '/\btel\.?\s*:?\s*[\d\s\-]{7,}/iu',
+            '/\bmobil\.?\s*:?\s*[\d\s\-]{7,}/iu',
+
+            // Copyright/logos
+            '/©\s*MCST/i',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $text = preg_replace($pattern, '', $text);
+        }
+
+        return trim($text);
     }
 
     /**
