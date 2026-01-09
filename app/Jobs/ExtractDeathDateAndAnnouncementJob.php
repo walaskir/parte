@@ -73,7 +73,7 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
 
             // Extract text data ONLY if NOT portraits-only mode
             if (! $this->portraitsOnly) {
-                // Update death_date, announcement_text, and has_photo (keep existing full_name and funeral_date)
+                // Update death_date, announcement_text, has_photo, full_name, and opening_quote (keep existing funeral_date)
                 $updateData = [];
                 if (isset($ocrData['death_date']) && $ocrData['death_date']) {
                     $updateData['death_date'] = $ocrData['death_date'];
@@ -84,14 +84,22 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                 if (isset($ocrData['has_photo'])) {
                     $updateData['has_photo'] = (bool) $ocrData['has_photo'];
                 }
+                if (isset($ocrData['full_name']) && $ocrData['full_name']) {
+                    $updateData['full_name'] = $ocrData['full_name'];
+                }
+                if (isset($ocrData['opening_quote'])) {
+                    $updateData['opening_quote'] = $ocrData['opening_quote'];
+                }
 
                 if (! empty($updateData)) {
                     $this->deathNotice->update($updateData);
 
-                    Log::info("Successfully extracted death_date and announcement_text for DeathNotice {$this->deathNotice->hash}", [
+                    Log::info("Successfully extracted data for DeathNotice {$this->deathNotice->hash}", [
                         'death_date' => $ocrData['death_date'] ?? null,
                         'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
                         'has_photo' => $ocrData['has_photo'] ?? false,
+                        'full_name' => $ocrData['full_name'] ?? null,
+                        'opening_quote' => isset($ocrData['opening_quote']) ? substr($ocrData['opening_quote'], 0, 50).'...' : null,
                     ]);
                 } else {
                     Log::warning("No death_date found in OCR data for DeathNotice {$this->deathNotice->hash}", [
