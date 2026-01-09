@@ -13,6 +13,7 @@ class ProcessExistingPartesCommand extends Command
     protected $signature = 'parte:process-existing
         {--missing-death-date : Only process records missing death_date}
         {--missing-announcement-text : Only process records missing announcement_text}
+        {--missing-opening-quote : Only process records missing opening_quote}
         {--extract-portraits : Extract portraits from all parte without photos}
         {--force : Force re-extraction even if data already exists}';
 
@@ -35,13 +36,16 @@ class ProcessExistingPartesCommand extends Command
                 });
                 $this->info('Extracting portraits from parte without photos...');
             }
-        } elseif ($this->option('missing-death-date') || $this->option('missing-announcement-text')) {
+        } elseif ($this->option('missing-death-date') || $this->option('missing-announcement-text') || $this->option('missing-opening-quote')) {
             $query->where(function ($q) {
                 if ($this->option('missing-death-date')) {
                     $q->orWhereNull('death_date');
                 }
                 if ($this->option('missing-announcement-text')) {
                     $q->orWhereNull('announcement_text');
+                }
+                if ($this->option('missing-opening-quote')) {
+                    $q->orWhereNull('opening_quote');
                 }
             });
 
@@ -50,13 +54,15 @@ class ProcessExistingPartesCommand extends Command
                 $query = DeathNotice::query()->whereNotNull('id');
             }
         } else {
-            // No options = process records missing either death_date OR announcement_text
+            // No options = process records missing either death_date OR announcement_text OR opening_quote
             if ($this->option('force')) {
                 $query->whereNotNull('id'); // All records
                 $this->warn('⚠️  FORCE mode: Re-extracting ALL data from ALL parte...');
             } else {
                 $query->where(function ($q) {
-                    $q->whereNull('death_date')->orWhereNull('announcement_text');
+                    $q->whereNull('death_date')
+                        ->orWhereNull('announcement_text')
+                        ->orWhereNull('opening_quote');
                 });
             }
         }

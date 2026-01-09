@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\DeathNotice;
 use App\Services\VisionOcrService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 
 class ExtractOpeningQuotesCommand extends Command
@@ -97,7 +98,16 @@ class ExtractOpeningQuotesCommand extends Command
                 // Update record with new data
                 $updateData = [];
 
-                if (isset($extractedData['opening_quote'])) {
+                // Debug log what we got from extraction
+                Log::info('ExtractOpeningQuotesCommand: Extraction result', [
+                    'hash' => $notice->hash,
+                    'has_opening_quote' => isset($extractedData['opening_quote']),
+                    'opening_quote_value' => $extractedData['opening_quote'] ?? 'NOT_SET',
+                    'opening_quote_length' => isset($extractedData['opening_quote']) && $extractedData['opening_quote'] ? strlen($extractedData['opening_quote']) : 0,
+                    'ann_text_preview' => isset($extractedData['announcement_text']) ? substr($extractedData['announcement_text'], 0, 80) : 'NOT_SET',
+                ]);
+
+                if (isset($extractedData['opening_quote']) && $extractedData['opening_quote'] !== null) {
                     $updateData['opening_quote'] = $extractedData['opening_quote'];
                 }
 

@@ -23,6 +23,7 @@ class DeathNoticeFactory extends Factory
         return [
             'hash' => substr(hash('sha256', $fullName.$funeralDate->format('Y-m-d').$sourceUrl), 0, 12),
             'full_name' => $fullName,
+            'opening_quote' => fake()->optional(0.7)->sentence(10),
             'funeral_date' => $funeralDate,
             'death_date' => fake()->dateTimeBetween('-40 days', '-1 days'),
             'source' => fake()->randomElement(['PSBK', 'PS Hajdukova', 'Sadovy Jan']),
@@ -49,6 +50,16 @@ class DeathNoticeFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'announcement_text' => null,
+        ]);
+    }
+
+    /**
+     * Indicate that the death notice has a specific opening quote.
+     */
+    public function withOpeningQuote(string $quote): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'opening_quote' => $quote,
         ]);
     }
 }

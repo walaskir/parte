@@ -36,8 +36,15 @@ return [
     ],
 
     'vision' => [
-        'provider' => env('VISION_PROVIDER', 'gemini'),
-        'fallback_provider' => env('VISION_FALLBACK_PROVIDER', 'zhipuai'),
+        // DEPRECATED - Will throw exception if used in production
+        'provider' => env('VISION_PROVIDER'),
+        'fallback_provider' => env('VISION_FALLBACK_PROVIDER'),
+
+        // NEW configuration (required)
+        'text_provider' => env('VISION_TEXT_PROVIDER'),
+        'text_fallback' => env('VISION_TEXT_FALLBACK'),
+        'photo_provider' => env('VISION_PHOTO_PROVIDER'),
+        'photo_fallback' => env('VISION_PHOTO_FALLBACK'),
     ],
 
     'gemini' => [
@@ -57,6 +64,17 @@ return [
         'model' => env('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
         'max_tokens' => (int) env('ANTHROPIC_MAX_TOKENS', 2048),
         'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
+    ],
+
+    'abacusai' => [
+        'api_key' => env('ABACUSAI_API_KEY'),
+        'base_url' => env('ABACUSAI_BASE_URL', 'https://routellm.abacus.ai'),
+        'models' => [
+            'gemini-3-flash' => 'GEMINI-3-FLASH-PREVIEW',
+            'claude-sonnet-4.5' => 'CLAUDE-SONNET-4-5-20250929',
+            'gemini-2.5-pro' => 'GEMINI-2.5-PRO',
+            'gpt-5.2' => 'GPT-5.2',
+        ],
     ],
 
     'parte' => [

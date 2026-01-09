@@ -339,7 +339,8 @@ class VisionOcrService
             // Add required fields for compatibility
             $result['has_photo'] = false; // Handled separately
 
-            return $result;
+            // Apply post-processing and cleaning
+            return $this->cleanExtractionResult($result, $knownName);
         } catch (Exception $e) {
             Log::error('Abacus.AI text extraction failed', [
                 'error' => $e->getMessage(),
@@ -1240,6 +1241,17 @@ Return ONLY valid JSON, nothing else.";
 
         if (isset($json['announcement_text']) && $json['announcement_text']) {
             $cleaned = preg_replace('/\s+/', ' ', trim($json['announcement_text']));
+
+            // POST-PROCESSING STEP 1: Extract opening quote if AI missed it
+            if (empty($result['opening_quote']) && strlen($cleaned) > 100) {
+                $extracted = $this->extractOpeningQuoteFromAnnouncement($cleaned);
+                if ($extracted['opening_quote']) {
+                    $result['opening_quote'] = $extracted['opening_quote'];
+                    $cleaned = $extracted['announcement_text'];
+                }
+            }
+
+            // POST-PROCESSING STEP 2: Remove funeral service footer
             $cleaned = $this->removeFuneralServiceSignature($cleaned);
 
             if (strlen($cleaned) < 50) {
@@ -1352,31 +1364,101 @@ Return ONLY valid JSON, nothing else.";
     }
 
     /**
-     * Remove funeral service signatures and contact info from announcement text
+     * Extract opening quote from announcement_text if AI missed it
+     * Post-processing fallback method
+     */
+    private function extractOpeningQuoteFromAnnouncement(string $announcementText): array
+    {
+        // Common patterns for opening quotes followed by main announcement
+        $patterns = [
+            // Polish: Quote ending with period/comma + "Z głębokim smutkiem"
+            '/^(.{20,500}?[.!])\s+(Z głębokim smutkiem|W głębokim żalu)/u',
+            // Czech: Quote ending with period/comma + "S hlubokým smutkem"
+            '/^(.{20,500}?[.!])\s+(S hlubokým smutkem|S bolestí v srdci)/u',
+            // Quote with multiple sentences ending before announcement
+            '/^((?:[^.!]+[.!]\s*){1,3})\s+(Z głębokim|S hlubokým|W głębokim)/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $announcementText, $matches)) {
+                $quote = trim($matches[1]);
+                $remainingText = trim(preg_replace('/^'.preg_quote($quote, '/').'\s*/u', '', $announcementText));
+
+                // Validate quote length (reasonable for opening quote)
+                if (strlen($quote) >= 20 && strlen($quote) <= 500) {
+                    Log::info('Post-processing: Extracted opening quote from announcement_text', [
+                        'quote_length' => strlen($quote),
+                        'quote_preview' => substr($quote, 0, 50),
+                    ]);
+
+                    return [
+                        'opening_quote' => $quote,
+                        'announcement_text' => $remainingText,
+                    ];
+                }
+            }
+        }
+
+        return [
+            'opening_quote' => null,
+            'announcement_text' => $announcementText,
+        ];
+    }
+
+    /**
+     * Remove funeral service business footer from announcement text
+     * Enhanced to handle more patterns and log removals
      */
     private function removeFuneralServiceSignature(string $text): string
     {
-        // Common patterns for funeral service signatures (case-insensitive, Unicode-aware)
+        $original = $text;
+
+        // Pattern 1: Family signature + Business name + contact info
+        // Example: "Zasmucona rodzina Jan Sadový Pohřební služba Bystřice tel. 558352208 mobil: 602539388"
         $patterns = [
-            // Czech: "Pohřební služba..." + phone
-            '/pohřební služba.*?(?:tel\.?|mobil).*?[\d\s\-]{7,}/iu',
+            // Polish: Zasmucona rodzina + business + all phone numbers (keep family signature)
+            '/(Zasmucona rodzina|Smutna rodzina|Żona i dzieci|Rodzina)\s+[A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż\s]+(?:Pohřební|Pohrební|služba).*?(?:tel\.?|mobil).*$/ui',
 
-            // Polish: "Zakład pogrzebowy..." + phone
-            '/zakład pogrzebowy.*?(?:tel\.?|mobil).*?[\d\s\-]{7,}/iu',
+            // Czech: Zarmoucená rodina + business + all phone numbers (keep family signature)
+            '/(Zarmoucená rodina|Smutná rodina|Manžel a děti|Pozůstalí|Rodina)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][\wáčďéěíňóřšťúůýž\s]+(?:Pohřební|služba|s\.r\.o\.).*?(?:tel\.?|mobil).*$/ui',
 
-            // Generic: Business with address + phone (e.g., "s.r.o., ul. Polní 90, Jablunkov, tel.: 558 357 404")
-            '/s\.r\.o\.,?\s+ul\.\s+[^,]+,\s+[^,]+,\s+tel\.?:?\s*[\d\s\-]{7,}/iu',
+            // Business with s.r.o. + any contact info to end of text
+            '/(Zarmoucená rodina|Zasmucona rodzina|Rodzina)\s*\.?\s+[A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż\s,]*(?:s\.r\.o\.|sp\. z o\.o\.).*$/ui',
 
-            // Phone numbers after family signature (standalone)
-            '/\btel\.?\s*:?\s*[\d\s\-]{7,}/iu',
-            '/\bmobil\.?\s*:?\s*[\d\s\-]{7,}/iu',
+            // Simple: Family signature + anything with "tel." or "mobil" to end
+            '/(Zarmoucená rodina|Zasmucona rodzina|Smutná rodina|Rodzina)\s+(?:[A-Z][\wąćęłńóśźżáčďéěíňóřšťúůýž\s]+)?(?:tel\.|mobil|telefon).*$/ui',
+
+            // Czech: "Pohřební služba..." + everything to end
+            '/pohřební služba.*$/iu',
+
+            // Polish: "Zakład pogrzebowy..." + everything to end
+            '/zakład pogrzebowy.*$/iu',
+
+            // Generic: Business with address + phone to end
+            '/s\.r\.o\.,?\s+ul\..*$/iu',
+
+            // Standalone: "PsHAJDUKOVÁ, s.r.o." or similar company names
+            '/Ps[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]+[áčďéěíňóřšťúůýž]*,\s*s\.r\.o\..*$/iu',
+
+            // Phone numbers after family signature (standalone) - greedy to end
+            '/\b(?:tel|mobil|telefon)\.?\s*:?\s*[\d\s\-:]+$/iu',
 
             // Copyright/logos
             '/©\s*MCST/i',
         ];
 
         foreach ($patterns as $pattern) {
-            $text = preg_replace($pattern, '', $text);
+            $text = preg_replace($pattern, '$1', $text);
+        }
+
+        // If text was modified, log it
+        if ($text !== $original) {
+            $removed = trim(substr($original, strlen($text)));
+            Log::info('Post-processing: Removed funeral service footer', [
+                'removed_text' => substr($removed, 0, 100),
+                'original_length' => strlen($original),
+                'cleaned_length' => strlen($text),
+            ]);
         }
 
         return trim($text);

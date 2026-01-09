@@ -160,28 +160,49 @@ $imagick->clear();                         // Always cleanup
 $imagick->destroy();
 ```
 
-### AI Extraction (CRITICAL)
-- **Provider Selection:** Configurable via `VISION_PROVIDER` in `.env`
-  - `gemini` - Google Gemini API (default, gemini-3-flash-preview)
-  - `zhipuai` - ZhipuAI GLM-4V (glm-4.6v-flash)
-  - `anthropic` - Anthropic Claude Vision (claude-3-5-sonnet-20241022)
-- **Fallback:** Configurable via `VISION_FALLBACK_PROVIDER` in `.env` (default: zhipuai)
-- **Fallback Strategy:** Attempts primary provider → fallback provider → all remaining configured providers
-- **Exception:** Throws exception if NO providers are configured (at least one API key required)
+### AI Extraction (CRITICAL - Version 2.0)
+
+**BREAKING CHANGE (v2.0):** Configuration syntax has changed!
+
+#### New Configuration (v2.0+)
+- **Text Provider:** `VISION_TEXT_PROVIDER=abacusai/gemini-3-flash` in `.env`
+  - Format: `provider/model` or `provider` (model optional)
+  - Providers: `abacusai`, `gemini`, `zhipuai`, `anthropic`
+  - Models (Abacus.AI): `gemini-3-flash`, `claude-sonnet-4.5`, `gemini-2.5-pro`, `gpt-5.2`
+- **Text Fallback:** `VISION_TEXT_FALLBACK=zhipuai` (optional)
+- **Photo Provider:** `VISION_PHOTO_PROVIDER=abacusai/claude-sonnet-4.5` in `.env`
+- **Photo Fallback:** `VISION_PHOTO_FALLBACK=anthropic` (optional)
+
+#### Old Configuration (DEPRECATED - v1.x)
+- ⚠️ **DEPRECATED:** `VISION_PROVIDER` and `VISION_FALLBACK_PROVIDER`
+- **Production:** Throws exception if old syntax detected
+- **Local/Testing:** Auto-converts with warning
+
+#### Provider-Specific Configuration
+- **Abacus.AI Unified API:**
+  - API Key: `ABACUSAI_API_KEY` (.env)
+  - Base URL: `https://routellm.abacus.ai` (default)
+  - Models: Multiple providers through single API (Gemini, Claude, GPT)
+  - Auto-normalizes pixel coordinates → percentages
 - **Google Gemini API:**
-  - API Key: `config('services.gemini.api_key')` (GEMINI_API_KEY)
-  - Model: `gemini-3-flash-preview` (configurable via GEMINI_MODEL)
+  - API Key: `GEMINI_API_KEY` (.env)
+  - Model: `gemini-3-flash-preview`
   - Endpoint: `https://generativelanguage.googleapis.com/v1beta`
-  - Supports: JPEG, PNG, PDF (base64 inline_data)
-  - Response: `candidates[0].content.parts[0].text`
 - **ZhipuAI API:**
-  - API Key: `config('services.zhipuai.api_key')` (ZHIPUAI_API_KEY)
-  - Model: `glm-4.6v-flash` (multimodal, ~1047 tokens/image)
+  - API Key: `ZHIPUAI_API_KEY` (.env)
+  - Model: `glm-4.6v-flash`
   - Endpoint: `https://open.bigmodel.cn/api/paas/v4`
 - **Anthropic API:**
-  - API Key: `config('services.anthropic.api_key')` (ANTHROPIC_API_KEY)
+  - API Key: `ANTHROPIC_API_KEY` (.env)
   - Model: `claude-3-5-sonnet-20241022`
   - Endpoint: `https://api.anthropic.com/v1/messages`
+
+#### Extraction Features
+- **Separate Providers:** Different providers for text extraction vs photo detection
+- **Opening Quote Field (NEW v2.0):** Extracts poetic quotes separately from announcement
+  - Validation: Warns if > 500 characters
+  - Field: `opening_quote` (nullable TEXT)
+  - Example: "Będę żyć dalej w sercach tych, którzy mnie kochali"
 - **Prompt:** Extracts complete announcement WITH funeral details, fixes OCR errors
 - **Photo Detection:** AI detects portrait photos, returns bounding box coordinates as percentages
 - **Portrait Extraction:** Automated cropping via `PortraitExtractionService` using Imagick

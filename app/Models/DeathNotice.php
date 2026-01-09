@@ -14,6 +14,7 @@ class DeathNotice extends Model implements HasMedia
     protected $fillable = [
         'hash',
         'full_name',
+        'opening_quote',
         'funeral_date',
         'death_date',
         'source',
