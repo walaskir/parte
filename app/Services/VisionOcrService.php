@@ -1548,9 +1548,6 @@ Return ONLY valid JSON, nothing else.";
             // GENERIC: Incomplete company name with just comma at end (7+ chars) - capture everything BEFORE it
             '/(.*?)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]{7,}[a-záčďéěíňóřšťúůýž]*,\s*$/u',
 
-            // GENERIC: Family member listing ending with capitalized business name - keep family members only
-            '/((?:manželka|žena|dcera|syn|synové|dzieci|córka|brat|sestra)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĄĆĘŁŃÓŚŹŻa-záčďéěíňóřšťúůýžąćęłńóśźż\s,]+?)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĄĆĘŁŃÓŚŹŻ]{3,}[a-záčďéěíňóřšťúůýžąćęłńóśźż]*,?\s*$/ui',
-
             // Copyright/logos
             '/©\s*MCST/i',
         ];
