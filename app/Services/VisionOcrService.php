@@ -1513,17 +1513,17 @@ Return ONLY valid JSON, nothing else.";
         // Pattern 1: Family signature + Business name + contact info
         // Example: "Zasmucona rodzina Jan Sadový Pohřební služba Bystřice tel. 558352208 mobil: 602539388"
         $patterns = [
-            // Polish: Zasmucona rodzina + business + all phone numbers (keep family signature)
-            '/(Zasmucona rodzina|Smutna rodzina|Żona i dzieci|Rodzina)\s+[A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż\s]+(?:Pohřební|Pohrební|služba).*?(?:tel\.?|mobil).*$/ui',
+            // Polish: Zasmucona rodzina + business + all phone numbers (keep family signature WITH period)
+            '/((?:Zasmucona|Smutna)\s+rodzina|Żona\s+i\s+dzieci|Rodzina)\.?\s+[A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż\s]+(?:Pohřební|Pohrební|służba).*?(?:tel\.?|mobil).*$/ui',
 
-            // Czech: Zarmoucená rodina + business + all phone numbers (keep family signature)
-            '/(Zarmoucená rodina|Smutná rodina|Manžel a děti|Pozůstalí|Rodina)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][\wáčďéěíňóřšťúůýž\s]+(?:Pohřební|služba|s\.r\.o\.).*?(?:tel\.?|mobil).*$/ui',
+            // Czech: Zarmoucená rodina + business + all phone numbers (keep family signature WITH period)
+            '/((?:Zarmoucená|Smutná)\s+rodina|Manžel\s+a\s+děti|Pozůstalí|Rodina)\.?\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][\wáčďéěíňóřšťúůýž\s]+(?:Pohřební|služba|s\.r\.o\.).*?(?:tel\.?|mobil).*$/ui',
 
             // Business with s.r.o. + any contact info to end of text
-            '/(Zarmoucená rodina|Zasmucona rodzina|Rodzina)\s*\.?\s+[A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż\s,]*(?:s\.r\.o\.|sp\. z o\.o\.).*$/ui',
+            '/((?:Zarmoucená|Zasmucona)\s+(?:rodina|rodzina)|Rodzina)\.?\s+[A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż\s,]*(?:s\.r\.o\.|sp\. z o\.o\.).*$/ui',
 
             // Simple: Family signature + anything with "tel." or "mobil" to end
-            '/(Zarmoucená rodina|Zasmucona rodzina|Smutná rodina|Rodzina)\s+(?:[A-Z][\wąćęłńóśźżáčďéěíňóřšťúůýž\s]+)?(?:tel\.|mobil|telefon).*$/ui',
+            '/((?:Zarmoucená|Zasmucona|Smutná)\s+(?:rodina|rodzina)|Rodzina)\.?\s+(?:[A-Z][\wąćęłńóśźżáčďéěíňóřšťúůýž\s]+)?(?:tel\.|mobil|telefon).*$/ui',
 
             // Czech: "Pohřební služba..." + everything to end
             '/pohřební služba.*$/iu',
@@ -1545,8 +1545,8 @@ Return ONLY valid JSON, nothing else.";
             // SPECIFIC: Known funeral service owner names (Czech/Polish) - capture everything BEFORE them
             '/(.*?)\s+(?:Jan\s+Sadový|Jan\s+Sadovy|Sadový|Sadovy|PSHAJDUKOVÁ|PsHAJDUKOVÁ|Hajduková)[,\.\s]*$/ui',
 
-            // GENERIC: Incomplete company name with just comma at end - capture everything BEFORE it
-            '/(.*?)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]{3,}[a-záčďéěíňóřšťúůýž]{2,},\s*$/u',
+            // GENERIC: Incomplete company name with just comma at end (7+ chars) - capture everything BEFORE it
+            '/(.*?)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]{7,}[a-záčďéěíňóřšťúůýž]*,\s*$/u',
 
             // GENERIC: Family member listing ending with capitalized business name - keep family members only
             '/((?:manželka|žena|dcera|syn|synové|dzieci|córka|brat|sestra)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĄĆĘŁŃÓŚŹŻa-záčďéěíňóřšťúůýžąćęłńóśźż\s,]+?)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĄĆĘŁŃÓŚŹŻ]{3,}[a-záčďéěíňóřšťúůýžąćęłńóśźż]*,?\s*$/ui',
@@ -1569,7 +1569,15 @@ Return ONLY valid JSON, nothing else.";
             ]);
         }
 
-        return trim($text);
+        $text = trim($text);
+
+        // Safety net: Add period if missing after footer removal
+        if (! empty($text) && ! preg_match('/[.!?]$/u', $text)) {
+            $text .= '.';
+            Log::info('Post-processing: Added missing period to announcement text');
+        }
+
+        return $text;
     }
 
     /**
