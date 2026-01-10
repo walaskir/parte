@@ -1207,6 +1207,13 @@ WHY THESE SPECIAL CASES MATTER:
    - ❌ DO NOT continue past family signature
    - ❌ DO NOT include anything that appears AFTER family signature
    
+   🛑 CRITICAL WARNING - COMMON EXTRACTION ERRORS:
+   If you see these patterns AFTER family signature, they are funeral service footers - EXCLUDE THEM:
+   * Business names: \"Jan Sadový\", \"PsHAJDUKOVÁ\", \"Hajduková\" (funeral service owners)
+   * Company designations: \"s.r.o.\", \"sp. z o.o.\", \"Pohřební služba\"
+   * Contact info: \"tel.\", \"mobil\", phone numbers, addresses (\"ul.\", \"č.p.\")
+   * If you see capitalized names AFTER family members list → it's likely a business name → STOP BEFORE IT
+   
    ⚠️ CONCRETE EXAMPLES OF CORRECT vs WRONG ENDINGS:
    
    EXAMPLE 1 - Polish announcement:
@@ -1315,7 +1322,10 @@ Return ONLY valid JSON, nothing else.";
         if (isset($json['announcement_text']) && $json['announcement_text']) {
             $cleaned = preg_replace('/\s+/', ' ', trim($json['announcement_text']));
 
-            // POST-PROCESSING STEP 1: Extract opening quote if AI missed it
+            // POST-PROCESSING STEP 1: Remove funeral service footer FIRST (before splitting text)
+            $cleaned = $this->removeFuneralServiceSignature($cleaned);
+
+            // POST-PROCESSING STEP 2: Extract opening quote if AI missed it (from cleaned text)
             if (empty($result['opening_quote']) && strlen($cleaned) > 100) {
                 $extracted = $this->extractOpeningQuoteFromAnnouncement($cleaned);
                 if ($extracted['opening_quote']) {
@@ -1323,9 +1333,6 @@ Return ONLY valid JSON, nothing else.";
                     $cleaned = $extracted['announcement_text'];
                 }
             }
-
-            // POST-PROCESSING STEP 2: Remove funeral service footer
-            $cleaned = $this->removeFuneralServiceSignature($cleaned);
 
             if (strlen($cleaned) < 50) {
                 Log::warning('AI returned suspiciously short announcement_text', [
@@ -1532,6 +1539,17 @@ Return ONLY valid JSON, nothing else.";
 
             // Phone numbers after family signature (standalone) - greedy to end
             '/\b(?:tel|mobil|telefon)\.?\s*:?\s*[\d\s\-:]+$/iu',
+
+            // === NEW PATTERNS FOR STANDALONE FUNERAL SERVICE NAMES ===
+
+            // SPECIFIC: Known funeral service owner names (Czech/Polish) - capture everything BEFORE them
+            '/(.*?)\s+(?:Jan\s+Sadový|Jan\s+Sadovy|Sadový|Sadovy|PSHAJDUKOVÁ|PsHAJDUKOVÁ|Hajduková)[,\.\s]*$/ui',
+
+            // GENERIC: Incomplete company name with just comma at end - capture everything BEFORE it
+            '/(.*?)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]{3,}[a-záčďéěíňóřšťúůýž]{2,},\s*$/u',
+
+            // GENERIC: Family member listing ending with capitalized business name - keep family members only
+            '/((?:manželka|žena|dcera|syn|synové|dzieci|córka|brat|sestra)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĄĆĘŁŃÓŚŹŻa-záčďéěíňóřšťúůýžąćęłńóśźż\s,]+?)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĄĆĘŁŃÓŚŹŻ]{3,}[a-záčďéěíňóřšťúůýžąćęłńóśźż]*,?\s*$/ui',
 
             // Copyright/logos
             '/©\s*MCST/i',
