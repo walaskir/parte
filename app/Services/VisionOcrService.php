@@ -1082,6 +1082,79 @@ EXTRACTION RULES:
      \"announcement_text\": \"Będę żyć dalej w sercach... Z głębokim smutkiem...\"
    }
 
+⚠️ SPECIAL CASES FOR OPENING QUOTES (CRITICAL):
+
+1. QUOTES WITH AUTHOR ATTRIBUTION:
+   If the opening quote includes an author name AFTER the quote text, 
+   the author name is PART OF the opening_quote field:
+   
+   ✅ CORRECT (author included in opening_quote):
+   {
+     \"opening_quote\": \"Zvedám jí ruku. Je v ní chlad, prsty jsou přitisklé k dlani. Kytičku chci jí do ní dát, už naposledy tentokrát. J. Seifert\",
+     \"announcement_text\": \"V tichém zármutku oznamujeme...\"
+   }
+   
+   ❌ WRONG (author name left in announcement):
+   {
+     \"opening_quote\": \"Zvedám jí ruku. Je v ní chlad...\",
+     \"announcement_text\": \"J. Seifert V tichém zármutku...\"
+   }
+   
+   Common author formats:
+   - Full name: \"Jiří Wolker.\", \"Jan Neruda.\", \"Jaroslav Seifert.\"
+   - Initial + name: \"J. Seifert\", \"J. Wolker\"
+
+2. BIBLE VERSES OR PSALM QUOTES:
+   Biblical quotes with verse references (Žalm/Psalm X, Y-Z) are opening quotes:
+   
+   ✅ CORRECT (verse reference included):
+   {
+     \"opening_quote\": \"Kdo v úkrytu Nejvyššího bydlí, přečká noc ve stínu Všemohoucího. Říkám o Hospodinu: „Mé útočiště, má pevná tvrz je můj Bůh, v nějž doufám.\" Žalm 91, 1-2\",
+     \"announcement_text\": \"V hlubokém zármutku oznamujeme...\"
+   }
+
+3. QUOTES ENDING WITH ELLIPSIS:
+   Opening quotes can end with \"...\" (ellipsis) instead of period:
+   
+   ✅ CORRECT:
+   {
+     \"opening_quote\": \"Kto w sercach żyje tych, których opuścił, ten nie odszedł ...\",
+     \"announcement_text\": \"W głębokim smutku pogrążeni...\"
+   }
+
+4. ANNOUNCEMENT STARTERS - EXPANDED LIST:
+   Opening quote ends BEFORE these phrases (announcement starts here):
+   
+   Polish starters:
+   - \"Z głębokim smutkiem...\" ← MAIN PATTERN
+   - \"W głębokim żalu...\" ← MAIN PATTERN
+   - \"W głębokim smutku pogrążeni...\" ← VARIANT
+   - \"Zmarł dnia...\" ← Death date announcement (no grief phrase)
+   - \"Zmarła dnia...\" ← Death date announcement (feminine)
+   
+   Czech starters:
+   - \"S hlubokým smutkem...\" ← MAIN PATTERN
+   - \"S bolestí v srdci...\" ← MAIN PATTERN
+   - \"V hlubokém zármutku...\" ← VERY COMMON
+   - \"V tichém zármutku...\" ← VERY COMMON
+
+5. \"NEPLAČTE/NELKEJTE\" MOURNING QUOTES:
+   Mourning quotes starting with \"Neplačte\" (Czech: don't cry) are opening quotes:
+   
+   ✅ CORRECT:
+   {
+     \"opening_quote\": \"Neplačte, že jsem odešla, ten klid a mír mi přejte a vzpomínku mi v srdci svém jen věrně zachovejte.\",
+     \"announcement_text\": \"V hlubokém zármutku oznamujeme...\"
+   }
+   
+   Also applies to: \"Nelkejte, že jsem odešel...\" (variant spelling)
+
+WHY THESE SPECIAL CASES MATTER:
+- Opening quotes are poetic/memorial tributes (often from famous Czech/Polish poets or Bible)
+- They may include author attribution, verse references, or end with ellipsis
+- Announcement text is factual death/funeral information
+- These MUST be separated into different JSON fields for proper data structure
+
 2. DEATH DATE (CRITICAL - DATE VALIDATION):
    - Keywords: 'zemřel/a', '†', 'zmarł/a', 'data śmierci', 'dne', 'dnia'
    - Formats: 'DD.MM.YYYY', 'DD.MM.YY', 'D. MONTH YYYY' (e.g., '31. prosince 2025')
@@ -1371,12 +1444,29 @@ Return ONLY valid JSON, nothing else.";
     {
         // Common patterns for opening quotes followed by main announcement
         $patterns = [
+            // === EXISTING PATTERNS (keep unchanged) ===
             // Polish: Quote ending with period/comma + "Z głębokim smutkiem"
             '/^(.{20,500}?[.!])\s+(Z głębokim smutkiem|W głębokim żalu)/u',
             // Czech: Quote ending with period/comma + "S hlubokým smutkem"
             '/^(.{20,500}?[.!])\s+(S hlubokým smutkem|S bolestí v srdci)/u',
             // Quote with multiple sentences ending before announcement
             '/^((?:[^.!]+[.!]\s*){1,3})\s+(Z głębokim|S hlubokým|W głębokim)/u',
+
+            // === NEW PATTERNS FOR EDGE CASES ===
+            // Pattern 4: Czech quotes with author attribution (full name)
+            '/^(.{20,600}?[.!]\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][\wáčďéěíňóřšťúůýž]+\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][\wáčďéěíňóřšťúůýž]+\.)\s+(V\s+(?:tichém|hlubokém)\s+zármutku)/u',
+            // Pattern 5: Czech quotes with author attribution (initial + name)
+            '/^(.{20,600}?[.!]\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]\.\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][\wáčďéěíňóřšťúůýž]+)\s+(V\s+(?:tichém|hlubokém)\s+zármutku)/u',
+            // Pattern 6: Bible verses with Žalm/Psalm reference
+            '/^(.{20,600}?(?:Žalm|Psalm)\s+\d+[,\s\d\-]+)\s+(V\s+hlubokém\s+zármutku|S\s+bolestí)/u',
+            // Pattern 7: "Neplačte/Nelkejte" mourning pattern
+            '/^(Ne[lp][la]čte[^.]+\.)\s+(V\s+hlubokém\s+zármutku|S\s+bolestí)/u',
+            // Pattern 8: Polish quotes ending with ellipsis
+            '/^(.{20,600}?\s+\.{3})\s+(W\s+głębokim\s+(?:smutku|żalu)|Z\s+głębokim\s+smutkiem)/u',
+            // Pattern 9: Polish philosophical quotes with "Zmarł dnia" starter
+            '/^(.{20,600}?\.)\s+(Zmarł\s+dnia|Zmarła\s+dnia)/u',
+            // Pattern 10: Broader Czech "V hlubokém/tichém zármutku" catch-all
+            '/^(.{20,600}?\.)\s+(V\s+(?:hlubokém|tichém)\s+zármutku)/u',
         ];
 
         foreach ($patterns as $pattern) {
@@ -1384,8 +1474,8 @@ Return ONLY valid JSON, nothing else.";
                 $quote = trim($matches[1]);
                 $remainingText = trim(preg_replace('/^'.preg_quote($quote, '/').'\s*/u', '', $announcementText));
 
-                // Validate quote length (reasonable for opening quote)
-                if (strlen($quote) >= 20 && strlen($quote) <= 500) {
+                // Validate quote length (reasonable for opening quote, increased to 600 for Bible verses)
+                if (strlen($quote) >= 20 && strlen($quote) <= 600) {
                     Log::info('Post-processing: Extracted opening quote from announcement_text', [
                         'quote_length' => strlen($quote),
                         'quote_preview' => substr($quote, 0, 50),
