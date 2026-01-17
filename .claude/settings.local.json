@@ -1,7 +1,17 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(composer require:*)",
+      "Bash(php artisan vendor:publish:*)",
+      "Bash(php artisan:*)",
+      "Bash(vendor/bin/pint:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "laravel-boost",
     "herd"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

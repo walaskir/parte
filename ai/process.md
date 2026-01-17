@@ -17,9 +17,9 @@
 - **FINALLY** refactor the code while keeping tests green
 - **NEVER** implement functionality without corresponding tests
 - Follow the Red-Green-Refactor cycle:
-  1. **Red**: Write a failing test
-  2. **Green**: Write minimal code to make the test pass
-  3. **Refactor**: Improve code quality while maintaining passing tests
+    1. **Red**: Write a failing test
+    2. **Green**: Write minimal code to make the test pass
+    3. **Refactor**: Improve code quality while maintaining passing tests
 
 ## Related Files
 

@@ -29,30 +29,30 @@ This file provides comprehensive SEO (Search Engine Optimization) and digital ma
 
 - **ALWAYS** use clean, descriptive URLs without unnecessary parameters:
 
-  ```php
-  // Good URL structure
-  Route::get('/blog/{slug}', [BlogController::class, 'show']);
-  Route::get('/features/{category}', [FeatureController::class, 'index']);
+    ```php
+    // Good URL structure
+    Route::get('/blog/{slug}', [BlogController::class, 'show']);
+    Route::get('/features/{category}', [FeatureController::class, 'index']);
 
-  // Bad URL structure
-  Route::get('/page', [PageController::class, 'show']); // ?id=123
-  ```
+    // Bad URL structure
+    Route::get('/page', [PageController::class, 'show']); // ?id=123
+    ```
 
 - **ALWAYS** implement proper URL redirects for changed routes:
 
-  ```php
-  // In routes/web.php
-  Route::redirect('/old-url', '/new-url', 301);
+    ```php
+    // In routes/web.php
+    Route::redirect('/old-url', '/new-url', 301);
 
-  // Or in controller
-  return redirect()->route('new.route', 301);
-  ```
+    // Or in controller
+    return redirect()->route('new.route', 301);
+    ```
 
 - **ALWAYS** use canonical URLs to prevent duplicate content:
-  ```blade
-  {{-- In layout --}}
-  <link rel="canonical" href="{{ url()->current() }}">
-  ```
+    ```blade
+    {{-- In layout --}}
+    <link rel="canonical" href="{{ url()->current() }}">
+    ```
 
 ### Meta Tags Management
 
@@ -398,28 +398,28 @@ Sitemap: {{ $sitemap_url }}
 
 - **ALWAYS** use current year in title tags for freshness:
 
-  ```php
-  // In controller
-  $meta['title'] = "Best Laravel SaaS Platform " . date('Y');
-  ```
+    ```php
+    // In controller
+    $meta['title'] = "Best Laravel SaaS Platform " . date('Y');
+    ```
 
 - **ALWAYS** implement semantic keyword integration:
 
-  ```php
-  // Use related keywords naturally in content
-  $keywords = [
-      'primary' => 'Laravel SaaS',
-      'secondary' => ['SaaS platform', 'cloud software', 'subscription management'],
-      'long_tail' => ['Laravel multi-tenant SaaS', 'SaaS billing system'],
-  ];
-  ```
+    ```php
+    // Use related keywords naturally in content
+    $keywords = [
+        'primary' => 'Laravel SaaS',
+        'secondary' => ['SaaS platform', 'cloud software', 'subscription management'],
+        'long_tail' => ['Laravel multi-tenant SaaS', 'SaaS billing system'],
+    ];
+    ```
 
 - **ALWAYS** optimize meta descriptions for click-through rate:
-  ```php
-  // 150-160 characters, include primary keyword and call-to-action
-  $meta['description'] = "Build your SaaS faster with our Laravel platform. " .
-                         "Start your 14-day free trial today - no credit card required.";
-  ```
+    ```php
+    // 150-160 characters, include primary keyword and call-to-action
+    $meta['description'] = "Build your SaaS faster with our Laravel platform. " .
+                           "Start your 14-day free trial today - no credit card required.";
+    ```
 
 ### Image Optimization
 
@@ -491,33 +491,33 @@ Usage in blade templates:
 
 - **ALWAYS** use internal linking strategy:
 
-  ```blade
-  {{-- Link to related content --}}
-  <a href="{{ route('features.detail', 'analytics') }}"
-     title="{{ __('Learn more about analytics features') }}">
-      {{ __('Discover our analytics') }}
-  </a>
-  ```
+    ```blade
+    {{-- Link to related content --}}
+    <a href="{{ route('features.detail', 'analytics') }}"
+       title="{{ __('Learn more about analytics features') }}">
+        {{ __('Discover our analytics') }}
+    </a>
+    ```
 
 - **ALWAYS** implement breadcrumbs for navigation:
-  ```blade
-  <nav aria-label="Breadcrumb">
-      <ol itemscope itemtype="https://schema.org/BreadcrumbList">
-          <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-              <a itemprop="item" href="{{ route('home') }}">
-                  <span itemprop="name">Home</span>
-              </a>
-              <meta itemprop="position" content="1" />
-          </li>
-          <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
-              <a itemprop="item" href="{{ route('blog.index') }}">
-                  <span itemprop="name">Blog</span>
-              </a>
-              <meta itemprop="position" content="2" />
-          </li>
-      </ol>
-  </nav>
-  ```
+    ```blade
+    <nav aria-label="Breadcrumb">
+        <ol itemscope itemtype="https://schema.org/BreadcrumbList">
+            <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+                <a itemprop="item" href="{{ route('home') }}">
+                    <span itemprop="name">Home</span>
+                </a>
+                <meta itemprop="position" content="1" />
+            </li>
+            <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+                <a itemprop="item" href="{{ route('blog.index') }}">
+                    <span itemprop="name">Blog</span>
+                </a>
+                <meta itemprop="position" content="2" />
+            </li>
+        </ol>
+    </nav>
+    ```
 
 ## Performance Optimization for SEO
 
@@ -525,57 +525,57 @@ Usage in blade templates:
 
 - **ALWAYS** implement caching strategies:
 
-  ```php
-  // In controller
-  $posts = Cache::remember('blog.posts', 3600, function () {
-      return Post::published()->latest()->get();
-  });
-  ```
+    ```php
+    // In controller
+    $posts = Cache::remember('blog.posts', 3600, function () {
+        return Post::published()->latest()->get();
+    });
+    ```
 
 - **ALWAYS** use CDN for static assets:
 
-  ```php
-  // config/filesystems.php
-  'cdn' => [
-      'driver' => 's3',
-      'key' => env('AWS_ACCESS_KEY_ID'),
-      'secret' => env('AWS_SECRET_ACCESS_KEY'),
-      'region' => env('AWS_DEFAULT_REGION'),
-      'bucket' => env('AWS_BUCKET'),
-      'url' => env('AWS_URL'),
-  ],
-  ```
+    ```php
+    // config/filesystems.php
+    'cdn' => [
+        'driver' => 's3',
+        'key' => env('AWS_ACCESS_KEY_ID'),
+        'secret' => env('AWS_SECRET_ACCESS_KEY'),
+        'region' => env('AWS_DEFAULT_REGION'),
+        'bucket' => env('AWS_BUCKET'),
+        'url' => env('AWS_URL'),
+    ],
+    ```
 
 - **ALWAYS** compress images before serving:
-  ```bash
-  # Install optimization tools
-  composer require intervention/image
-  npm install imagemin imagemin-webp
-  ```
+    ```bash
+    # Install optimization tools
+    composer require intervention/image
+    npm install imagemin imagemin-webp
+    ```
 
 ### Core Web Vitals Optimization
 
 - **ALWAYS** implement lazy loading for images:
 
-  ```blade
-  <img src="{{ asset('images/feature.jpg') }}"
-       loading="lazy"
-       decoding="async">
-  ```
+    ```blade
+    <img src="{{ asset('images/feature.jpg') }}"
+         loading="lazy"
+         decoding="async">
+    ```
 
 - **ALWAYS** optimize Largest Contentful Paint (LCP):
 
-  ```blade
-  {{-- Preload critical resources --}}
-  <link rel="preload" href="{{ asset('images/hero.jpg') }}" as="image">
-  <link rel="preload" href="{{ mix('css/app.css') }}" as="style">
-  ```
+    ```blade
+    {{-- Preload critical resources --}}
+    <link rel="preload" href="{{ asset('images/hero.jpg') }}" as="image">
+    <link rel="preload" href="{{ mix('css/app.css') }}" as="style">
+    ```
 
 - **ALWAYS** minimize Cumulative Layout Shift (CLS):
-  ```blade
-  {{-- Specify image dimensions --}}
-  <img src="..." width="1200" height="630" alt="...">
-  ```
+    ```blade
+    {{-- Specify image dimensions --}}
+    <img src="..." width="1200" height="630" alt="...">
+    ```
 
 ## Content Strategy for SEO
 
@@ -583,43 +583,43 @@ Usage in blade templates:
 
 - **ALWAYS** target specific, lower-competition keywords:
 
-  ```php
-  // Example keyword targeting
-  $keywords = [
-      'how to build a saas with laravel',
-      'laravel subscription billing tutorial',
-      'multi-tenant laravel application guide',
-  ];
-  ```
+    ```php
+    // Example keyword targeting
+    $keywords = [
+        'how to build a saas with laravel',
+        'laravel subscription billing tutorial',
+        'multi-tenant laravel application guide',
+    ];
+    ```
 
 - **ALWAYS** create content clusters:
-  ```
-  Pillar Content: "Complete Guide to Laravel SaaS Development"
-  ├── "Laravel Multi-Tenancy Implementation"
-  ├── "SaaS Billing with Laravel Cashier"
-  ├── "Authentication in Laravel SaaS"
-  └── "Performance Optimization for Laravel SaaS"
-  ```
+    ```
+    Pillar Content: "Complete Guide to Laravel SaaS Development"
+    ├── "Laravel Multi-Tenancy Implementation"
+    ├── "SaaS Billing with Laravel Cashier"
+    ├── "Authentication in Laravel SaaS"
+    └── "Performance Optimization for Laravel SaaS"
+    ```
 
 ### Content Readability
 
 - **ALWAYS** structure content with clear headings (H1-H6):
 
-  ```blade
-  <article>
-      <h1>{{ $post->title }}</h1>
+    ```blade
+    <article>
+        <h1>{{ $post->title }}</h1>
 
-      <h2>Introduction</h2>
-      <p>...</p>
+        <h2>Introduction</h2>
+        <p>...</p>
 
-      <h2>Main Content</h2>
-      <h3>Subsection 1</h3>
-      <p>...</p>
+        <h2>Main Content</h2>
+        <h3>Subsection 1</h3>
+        <p>...</p>
 
-      <h3>Subsection 2</h3>
-      <p>...</p>
-  </article>
-  ```
+        <h3>Subsection 2</h3>
+        <p>...</p>
+    </article>
+    ```
 
 - **ALWAYS** use short paragraphs and bullet points
 - **ALWAYS** include visual content (images, videos, diagrams)
@@ -629,20 +629,20 @@ Usage in blade templates:
 
 - **ALWAYS** implement hreflang tags for international targeting:
 
-  ```blade
-  <link rel="alternate" hreflang="en" href="{{ url('en/page') }}" />
-  <link rel="alternate" hreflang="es" href="{{ url('es/page') }}" />
-  <link rel="alternate" hreflang="fr" href="{{ url('fr/page') }}" />
-  <link rel="alternate" hreflang="x-default" href="{{ url('page') }}" />
-  ```
+    ```blade
+    <link rel="alternate" hreflang="en" href="{{ url('en/page') }}" />
+    <link rel="alternate" hreflang="es" href="{{ url('es/page') }}" />
+    <link rel="alternate" hreflang="fr" href="{{ url('fr/page') }}" />
+    <link rel="alternate" hreflang="x-default" href="{{ url('page') }}" />
+    ```
 
 - **ALWAYS** localize URLs:
-  ```php
-  // routes/web.php
-  Route::prefix('{locale}')->group(function () {
-      Route::get('/pricing', [PricingController::class, 'index'])->name('pricing');
-  });
-  ```
+    ```php
+    // routes/web.php
+    Route::prefix('{locale}')->group(function () {
+        Route::get('/pricing', [PricingController::class, 'index'])->name('pricing');
+    });
+    ```
 
 ## Analytics & Monitoring
 

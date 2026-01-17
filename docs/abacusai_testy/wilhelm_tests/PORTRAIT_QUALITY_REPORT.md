@@ -8,16 +8,16 @@
 
 ## Quality Summary
 
-| Portrait | Size | Dimensions | Quality | Issue |
-|----------|------|------------|---------|-------|
-| **Raszka/Gemini 3 Flash** | 1.8 KB | 400x400 | ⚠️ **TOO SMALL** | Pixel coords bug |
-| Raszka/Claude Sonnet 4.5 | 33.1 KB | 302x400 | ✅ Excellent | None |
-| Raszka/Gemini 2.5 Pro | 22.7 KB | 219x400 | ✅ Good | None |
-| Raszka/GPT-5.2 | 23.9 KB | 210x400 | ✅ Good | None |
-| **Wilhelm/Gemini 3 Flash** | 38.1 KB | 298x400 | ✅ Good | None |
-| Wilhelm/Claude Sonnet 4.5 | 17.5 KB | 167x400 | ✅ Good | None |
-| Wilhelm/Gemini 2.5 Pro | 22.8 KB | 238x400 | ✅ Good | None |
-| Wilhelm/GPT-5.2 | 18.6 KB | 217x400 | ✅ Good | None |
+| Portrait                   | Size    | Dimensions | Quality          | Issue            |
+| -------------------------- | ------- | ---------- | ---------------- | ---------------- |
+| **Raszka/Gemini 3 Flash**  | 1.8 KB  | 400x400    | ⚠️ **TOO SMALL** | Pixel coords bug |
+| Raszka/Claude Sonnet 4.5   | 33.1 KB | 302x400    | ✅ Excellent     | None             |
+| Raszka/Gemini 2.5 Pro      | 22.7 KB | 219x400    | ✅ Good          | None             |
+| Raszka/GPT-5.2             | 23.9 KB | 210x400    | ✅ Good          | None             |
+| **Wilhelm/Gemini 3 Flash** | 38.1 KB | 298x400    | ✅ Good          | None             |
+| Wilhelm/Claude Sonnet 4.5  | 17.5 KB | 167x400    | ✅ Good          | None             |
+| Wilhelm/Gemini 2.5 Pro     | 22.8 KB | 238x400    | ✅ Good          | None             |
+| Wilhelm/GPT-5.2            | 18.6 KB | 217x400    | ✅ Good          | None             |
 
 ---
 
@@ -26,18 +26,20 @@
 ### Raszka Document (FAILED)
 
 **Bounding Box Returned:**
+
 ```json
 {
-  "x": 422,
-  "y": 100,
-  "width": 170,
-  "height": 158
+    "x": 422,
+    "y": 100,
+    "width": 170,
+    "height": 158
 }
 ```
 
 **Coordinate System:** PIXELS (image is 2458x3488px)
 
 **Actual Percentages:**
+
 - x: 422 / 2458 = 17.2% (NOT 422%)
 - y: 100 / 3488 = 2.9% (NOT 100%)
 - width: 170 / 2458 = 6.9%
@@ -50,12 +52,13 @@
 ### Wilhelm Document (SUCCESS)
 
 **Bounding Box Returned:**
+
 ```json
 {
-  "x": 40.8,
-  "y": 10.8,
-  "width": 16.6,
-  "height": 15.7
+    "x": 40.8,
+    "y": 10.8,
+    "width": 16.6,
+    "height": 15.7
 }
 ```
 
@@ -75,6 +78,7 @@
 4. **Different dates** - Raszka tested earlier, Wilhelm tested later
 
 **Hypothesis:** Abacus.AI API may have:
+
 - Updated coordinate format between tests
 - Different behavior based on image content
 - Inconsistent model version routing
@@ -85,12 +89,12 @@
 
 ### Coordinate System Consistency
 
-| Model | Raszka Coords | Wilhelm Coords | Consistent? |
-|-------|---------------|----------------|-------------|
-| Gemini 3 Flash | Pixels (422, 100) | Percentage (40.8%, 10.8%) | ❌ NO |
-| Claude Sonnet 4.5 | Percentage (39%, 10%) | Percentage (45%, 14%) | ✅ YES |
-| Gemini 2.5 Pro | Percentage (42.1%, 9.7%) | Percentage (41.4%, 11.2%) | ✅ YES |
-| GPT-5.2 | Percentage (43.9%, 8.0%) | Percentage (34.9%, 7.7%) | ✅ YES |
+| Model             | Raszka Coords            | Wilhelm Coords            | Consistent? |
+| ----------------- | ------------------------ | ------------------------- | ----------- |
+| Gemini 3 Flash    | Pixels (422, 100)        | Percentage (40.8%, 10.8%) | ❌ NO       |
+| Claude Sonnet 4.5 | Percentage (39%, 10%)    | Percentage (45%, 14%)     | ✅ YES      |
+| Gemini 2.5 Pro    | Percentage (42.1%, 9.7%) | Percentage (41.4%, 11.2%) | ✅ YES      |
+| GPT-5.2           | Percentage (43.9%, 8.0%) | Percentage (34.9%, 7.7%)  | ✅ YES      |
 
 **Conclusion:** Only Gemini 3 Flash has inconsistent behavior. All other models reliable.
 
@@ -116,11 +120,13 @@
 **Height:** All portraits scaled to 400px (consistent with PortraitExtractionService)
 
 **Width Variation:**
+
 - Min: 167px (Claude Sonnet 4.5 / Wilhelm) - Narrow portrait
 - Max: 400px (Gemini 3 Flash / Raszka) - Square crop (WRONG)
 - Average: 244px (excluding broken portrait)
 
 **Aspect Ratios:**
+
 - Claude Sonnet 4.5: 167:400 = 0.42 (narrow)
 - Gemini 2.5 Pro: 228:400 = 0.57 (normal)
 - GPT-5.2: 213:400 = 0.53 (normal)
@@ -132,25 +138,25 @@
 
 ### Raszka Portrait Location
 
-| Model | x | y | width | height | Visual Check |
-|-------|---|---|--------|--------|--------------|
-| Claude Sonnet 4.5 | 39% | 10% | 30% | 28% | ✅ Accurate |
-| Gemini 2.5 Pro | 42.1% | 9.7% | 16.3% | 20.9% | ✅ Accurate |
-| GPT-5.2 | 43.9% | 8.0% | 14.2% | 19.1% | ✅ Accurate |
-| Gemini 3 Flash | 17.2%* | 2.9%* | 6.9%* | 4.5%* | ❌ Wrong area |
+| Model             | x       | y      | width  | height | Visual Check  |
+| ----------------- | ------- | ------ | ------ | ------ | ------------- |
+| Claude Sonnet 4.5 | 39%     | 10%    | 30%    | 28%    | ✅ Accurate   |
+| Gemini 2.5 Pro    | 42.1%   | 9.7%   | 16.3%  | 20.9%  | ✅ Accurate   |
+| GPT-5.2           | 43.9%   | 8.0%   | 14.2%  | 19.1%  | ✅ Accurate   |
+| Gemini 3 Flash    | 17.2%\* | 2.9%\* | 6.9%\* | 4.5%\* | ❌ Wrong area |
 
-*Converted from pixels (422, 100, 170, 158)
+\*Converted from pixels (422, 100, 170, 158)
 
 ---
 
 ### Wilhelm Portrait Location
 
-| Model | x | y | width | height | Visual Check |
-|-------|---|---|--------|--------|--------------|
-| Gemini 3 Flash | 40.8% | 10.8% | 16.6% | 15.7% | ✅ Accurate |
-| Claude Sonnet 4.5 | 45% | 14% | 16% | 27% | ✅ Accurate |
-| Gemini 2.5 Pro | 41.4% | 11.2% | 17.8% | 21.1% | ✅ Accurate |
-| GPT-5.2 | 34.9% | 7.7% | 14.7% | 19.1% | ✅ Accurate |
+| Model             | x     | y     | width | height | Visual Check |
+| ----------------- | ----- | ----- | ----- | ------ | ------------ |
+| Gemini 3 Flash    | 40.8% | 10.8% | 16.6% | 15.7%  | ✅ Accurate  |
+| Claude Sonnet 4.5 | 45%   | 14%   | 16%   | 27%    | ✅ Accurate  |
+| Gemini 2.5 Pro    | 41.4% | 11.2% | 17.8% | 21.1%  | ✅ Accurate  |
+| GPT-5.2           | 34.9% | 7.7%  | 14.7% | 19.1%  | ✅ Accurate  |
 
 **Observation:** All models agree portrait is around x=40%, y=10% (top-center area)
 
@@ -161,6 +167,7 @@
 ### 1. Fix Coordinate Normalization (CRITICAL)
 
 **Current Code:**
+
 ```php
 // AbacusAiVisionService::extractPortrait() - BROKEN
 $this->extractPortrait($imagePath, $bounds, $outputPath);
@@ -168,22 +175,23 @@ $this->extractPortrait($imagePath, $bounds, $outputPath);
 ```
 
 **Fixed Code:**
+
 ```php
 public function detectPortrait($imagePath, $model = self::GEMINI_3_FLASH): ?array
 {
     // ... existing code ...
-    
+
     // CRITICAL FIX: Normalize coordinates
     $imageInfo = getimagesize($imagePath);
     $imageWidth = $imageInfo[0];
     $imageHeight = $imageInfo[1];
-    
+
     $normalizedBounds = $this->normalizeCoordinates(
-        $bounds, 
-        $imageWidth, 
+        $bounds,
+        $imageWidth,
         $imageHeight
     );
-    
+
     return [
         'has_photo' => true,
         'bounds' => $normalizedBounds
@@ -191,19 +199,19 @@ public function detectPortrait($imagePath, $model = self::GEMINI_3_FLASH): ?arra
 }
 
 private function normalizeCoordinates(
-    array $bounds, 
-    int $imageWidth, 
+    array $bounds,
+    int $imageWidth,
     int $imageHeight
 ): array {
     // If any coordinate > 100, assume pixels
-    if ($bounds['x'] > 100 || $bounds['y'] > 100 || 
+    if ($bounds['x'] > 100 || $bounds['y'] > 100 ||
         $bounds['width'] > 100 || $bounds['height'] > 100) {
-        
+
         Log::warning('Abacus.AI returned pixel coordinates, converting to percentages', [
             'original' => $bounds,
             'image_size' => "{$imageWidth}x{$imageHeight}"
         ]);
-        
+
         return [
             'x' => round(($bounds['x'] / $imageWidth) * 100, 2),
             'y' => round(($bounds['y'] / $imageHeight) * 100, 2),
@@ -211,7 +219,7 @@ private function normalizeCoordinates(
             'height' => round(($bounds['height'] / $imageHeight) * 100, 2),
         ];
     }
-    
+
     return $bounds; // Already percentages
 }
 ```
@@ -226,32 +234,32 @@ public function validatePortraitQuality(string $portraitPath): array
     if (!file_exists($portraitPath)) {
         return ['valid' => false, 'reason' => 'File not found'];
     }
-    
+
     $size = filesize($portraitPath);
     $imageInfo = getimagesize($portraitPath);
-    
+
     if (!$imageInfo) {
         return ['valid' => false, 'reason' => 'Invalid image'];
     }
-    
+
     [$width, $height] = $imageInfo;
-    
+
     // Quality checks
     if ($size < 5000) {
         return ['valid' => false, 'reason' => 'File too small (< 5 KB)', 'size' => $size];
     }
-    
+
     if ($width < 100 || $height < 100) {
         return ['valid' => false, 'reason' => 'Dimensions too small', 'size' => "{$width}x{$height}"];
     }
-    
+
     if ($width === $height && $size < 10000) {
         return ['valid' => false, 'reason' => 'Square crop (likely wrong area)', 'size' => "{$width}x{$height}"];
     }
-    
+
     return [
-        'valid' => true, 
-        'size' => $size, 
+        'valid' => true,
+        'size' => $size,
         'dimensions' => "{$width}x{$height}",
         'quality' => $size > 30000 ? 'excellent' : ($size > 15000 ? 'good' : 'acceptable')
     ];
@@ -272,7 +280,7 @@ if (!$validation['valid']) {
         'reason' => $validation['reason'],
         'primary_model' => 'GEMINI-3-FLASH-PREVIEW'
     ]);
-    
+
     // Retry with Claude Sonnet 4.5 (more reliable coordinates)
     $result = $abacusService->detectPortrait($imagePath, AbacusAiVisionService::CLAUDE_SONNET_4_5);
     $portraitPath = $abacusService->extractPortrait(/* ... */);
@@ -298,13 +306,14 @@ if (/* pixel coordinates detected */) {
 ```
 
 **Dashboard Query (Horizon/Logs):**
+
 ```sql
 -- Count normalizations per model per day
-SELECT 
+SELECT
     DATE(created_at) as date,
     JSON_EXTRACT(context, '$.model') as model,
     COUNT(*) as normalizations
-FROM logs 
+FROM logs
 WHERE message = 'abacus_coordinate_normalization'
 GROUP BY date, model
 ORDER BY date DESC;
@@ -321,26 +330,26 @@ ORDER BY date DESC;
 
 test('normalizes pixel coordinates to percentages', function () {
     $service = new AbacusAiVisionService();
-    
+
     $pixelBounds = ['x' => 422, 'y' => 100, 'width' => 170, 'height' => 158];
     $imageWidth = 2458;
     $imageHeight = 3488;
-    
+
     $normalized = $service->normalizeCoordinates($pixelBounds, $imageWidth, $imageHeight);
-    
+
     expect($normalized['x'])->toBe(17.17); // 422/2458 * 100
     expect($normalized['y'])->toBe(2.87);  // 100/3488 * 100
 });
 
 test('preserves percentage coordinates', function () {
     $service = new AbacusAiVisionService();
-    
+
     $percentBounds = ['x' => 40.8, 'y' => 10.8, 'width' => 16.6, 'height' => 15.7];
     $imageWidth = 2458;
     $imageHeight = 3488;
-    
+
     $normalized = $service->normalizeCoordinates($percentBounds, $imageWidth, $imageHeight);
-    
+
     expect($normalized)->toBe($percentBounds); // Unchanged
 });
 ```
@@ -356,10 +365,10 @@ Test with BOTH documents:
 
 test('extracts portraits from Raszka document with pixel coords', function () {
     $imagePath = 'public/parte/b8b1aab1fc52/parte_Raszka20260107_15163920-1.jpg';
-    
+
     $service = new AbacusAiVisionService();
     $result = $service->detectPortrait($imagePath, AbacusAiVisionService::GEMINI_3_FLASH);
-    
+
     expect($result['has_photo'])->toBeTrue();
     expect($result['bounds']['x'])->toBeLessThan(100); // Must be percentage
     expect($result['bounds']['y'])->toBeLessThan(100);
@@ -369,11 +378,11 @@ test('validates portrait quality after extraction', function () {
     // Extract portrait using Gemini 3 Flash
     $service = new AbacusAiVisionService();
     $portraitPath = '/tmp/test_portrait.jpg';
-    
+
     $service->extractComplete('public/parte/b8b1aab1fc52/parte_Raszka20260107_15163920-1.jpg');
-    
+
     $validation = $service->validatePortraitQuality($portraitPath);
-    
+
     expect($validation['valid'])->toBeTrue();
     expect($validation['size'])->toBeGreaterThan(5000); // Not too small
 });
@@ -397,7 +406,7 @@ Before deploying to production:
 ## Next Steps
 
 1. **Implement coordinate normalization** in `AbacusAiVisionService.php` (app/Services/AbacusAiVisionService.php:48)
-2. **Add quality validation method** 
+2. **Add quality validation method**
 3. **Write unit tests** for normalization
 4. **Write integration tests** for both documents
 5. **Re-run portrait extraction** on Raszka with fixed code

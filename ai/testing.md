@@ -357,25 +357,25 @@ name: Laravel Tests
 on: [push, pull_request]
 
 jobs:
-  laravel-tests:
-    runs-on: ubuntu-latest
+    laravel-tests:
+        runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
+            - name: Setup PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: "8.4"
 
-      - name: Install Dependencies
-        run: composer install --no-interaction --prefer-dist
+            - name: Install Dependencies
+              run: composer install --no-interaction --prefer-dist
 
-      - name: Generate Application Key
-        run: php artisan key:generate
+            - name: Generate Application Key
+              run: php artisan key:generate
 
-      - name: Run Tests
-        run: ./vendor/bin/pest --coverage
+            - name: Run Tests
+              run: ./vendor/bin/pest --coverage
 ```
 
 This comprehensive testing setup ensures high-quality, well-tested Laravel applications following TDD principles and best practices.

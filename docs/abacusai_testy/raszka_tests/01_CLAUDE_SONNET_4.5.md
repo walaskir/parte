@@ -9,9 +9,9 @@
 
 ```json
 {
-  "model": "CLAUDE-SONNET-4-5-20250929",
-  "temperature": 0.0,
-  "response_format": {"type": "json"}
+    "model": "CLAUDE-SONNET-4-5-20250929",
+    "temperature": 0.0,
+    "response_format": { "type": "json" }
 }
 ```
 
@@ -26,10 +26,10 @@
 
 ```json
 {
-  "full_name": "Stanislav Raszka",
-  "death_date": null,
-  "funeral_date": "2026-01-12",
-  "announcement_text": "Bede żyć dalej w sercach tych, którzy mnie kochali.\n\nZ głębokim smutkiem i żalem zawiadamiamy rodzinę, przyjaciół i znajomych, że zmarł nasz Ukochany Mąż, Ojciec, Teść, Dziadek, Brat, Szwagier, Wujek, Zięć i Przyjaciel\nPan\n\nśp. Stanislav Raszka\n\nzamieszkały w Bystrzycy nr. 1169.\nZmarł w kręgu rodziny w wieku 66 lat.\n\nPogrzeb Drogiego Zmarłego odbędzie się w poniedziałek 12.1.2026 o godzinie 14.00 z ewangelickiego kościoła w Bystrzycy.\n\nZasmucona rodzina\n\nJan Sadový Pohřební služba Bystřice tel: 558352208 mobil: 602539388"
+    "full_name": "Stanislav Raszka",
+    "death_date": null,
+    "funeral_date": "2026-01-12",
+    "announcement_text": "Bede żyć dalej w sercach tych, którzy mnie kochali.\n\nZ głębokim smutkiem i żalem zawiadamiamy rodzinę, przyjaciół i znajomych, że zmarł nasz Ukochany Mąż, Ojciec, Teść, Dziadek, Brat, Szwagier, Wujek, Zięć i Przyjaciel\nPan\n\nśp. Stanislav Raszka\n\nzamieszkały w Bystrzycy nr. 1169.\nZmarł w kręgu rodziny w wieku 66 lat.\n\nPogrzeb Drogiego Zmarłego odbędzie się w poniedziałek 12.1.2026 o godzinie 14.00 z ewangelickiego kościoła w Bystrzycy.\n\nZasmucona rodzina\n\nJan Sadový Pohřební služba Bystřice tel: 558352208 mobil: 602539388"
 }
 ```
 
@@ -38,8 +38,8 @@
 ```
 Bede żyć dalej w sercach tych, którzy mnie kochali.
 
-Z głębokim smutkiem i żalem zawiadamiamy rodzinę, przyjaciół i znajomych, 
-że zmarł nasz Ukochany Mąż, Ojciec, Teść, Dziadek, Brat, Szwagier, Wujek, 
+Z głębokim smutkiem i żalem zawiadamiamy rodzinę, przyjaciół i znajomych,
+że zmarł nasz Ukochany Mąż, Ojciec, Teść, Dziadek, Brat, Szwagier, Wujek,
 Zięć i Przyjaciel
 Pan
 
@@ -48,7 +48,7 @@ Pan
 zamieszkały w Bystrzycy nr. 1169.
 Zmarł w kręgu rodziny w wieku 66 lat.
 
-Pogrzeb Drogiego Zmarłego odbędzie się w poniedziałek 12.1.2026 o godzinie 
+Pogrzeb Drogiego Zmarłego odbędzie się w poniedziałek 12.1.2026 o godzinie
 14.00 z ewangelickiego kościoła w Bystrzycy.
 
 Zasmucona rodzina
@@ -62,13 +62,13 @@ Jan Sadový Pohřební služba Bystřice tel: 558352208 mobil: 602539388
 
 ```json
 {
-  "has_photo": true,
-  "photo_bounds": {
-    "x": 39,
-    "y": 10,
-    "width": 30,
-    "height": 28
-  }
+    "has_photo": true,
+    "photo_bounds": {
+        "x": 39,
+        "y": 10,
+        "width": 30,
+        "height": 28
+    }
 }
 ```
 
@@ -77,6 +77,7 @@ Jan Sadový Pohřební služba Bystřice tel: 558352208 mobil: 602539388
 ## Quality Assessment
 
 ### ✅ Strengths
+
 1. **Complete text extraction** - Includes opening quote
 2. **Clean name** - Without "śp." prefix
 3. **Perfect diacritics** - All Polish characters preserved (ż ł ś ę ą ó ć ń ź)
@@ -86,24 +87,26 @@ Jan Sadový Pohřební služba Bystřice tel: 558352208 mobil: 602539388
 7. **Contact info** - Complete with phone numbers
 
 ### ❌ Weaknesses
+
 1. **Missing death_date** - Not extracted (though info exists in text: "w wieku 66 lat")
 2. **Slower response** - 13s vs faster models
 
 ### 🎯 Use Cases
+
 - **Primary extraction** for highest accuracy
 - **Fallback provider** when Gemini fails
 - **Quality validation** - Compare other models against this
 
 ## Comparison with Database
 
-| Field | Claude Sonnet 4.5 | Database | Match |
-|-------|-------------------|----------|-------|
-| full_name | Stanislav Raszka | śp. Stanislav Raszka | ✅ (cleaner) |
-| death_date | null | 2026-01-06 | ❌ |
-| funeral_date | 2026-01-12 | 2026-01-12 | ✅ |
-| announcement_text | 470 chars | 425 chars | ✅ (more complete) |
-| has_photo | true | true | ✅ |
-| diacritics | Perfect | Perfect | ✅ |
+| Field             | Claude Sonnet 4.5 | Database             | Match              |
+| ----------------- | ----------------- | -------------------- | ------------------ |
+| full_name         | Stanislav Raszka  | śp. Stanislav Raszka | ✅ (cleaner)       |
+| death_date        | null              | 2026-01-06           | ❌                 |
+| funeral_date      | 2026-01-12        | 2026-01-12           | ✅                 |
+| announcement_text | 470 chars         | 425 chars            | ✅ (more complete) |
+| has_photo         | true              | true                 | ✅                 |
+| diacritics        | Perfect           | Perfect              | ✅                 |
 
 ## Recommendation
 

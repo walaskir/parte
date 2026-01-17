@@ -354,25 +354,25 @@ git push origin v1.2.3
 ```yaml
 # Example GitHub Actions workflow
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-    tags: ["v*"]
+    pull_request:
+        branches: [main]
+    push:
+        branches: [main]
+        tags: ["v*"]
 
 jobs:
-  test:
-    - Run test suites
-    - Code quality checks
-    - Security scans
+    test:
+        - Run test suites
+        - Code quality checks
+        - Security scans
 
-  build:
-    - Build artifacts
-    - Generate documentation
+    build:
+        - Build artifacts
+        - Generate documentation
 
-  deploy:
-    - Deploy to staging (on PR)
-    - Deploy to production (on tag)
+    deploy:
+        - Deploy to staging (on PR)
+        - Deploy to production (on tag)
 ```
 
 ### Git Hooks

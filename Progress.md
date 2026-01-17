@@ -41,4 +41,3 @@
 - **PDF generování používá Imagick (image→PDF) a DomPDF (HTML→PDF)**
 - Pro PS BK jsou obrázky stahovány a konvertovány do PDF formátu
 - **Imagick musí být nainstalován na produkčním serveru (již je nainstalován)**
-

@@ -17,6 +17,7 @@
         "laravel/horizon": "^5.41",
         "laravel/tinker": "^2.10.1",
         "smalot/pdfparser": "^2.12",
+        "spatie/laravel-flare": "^2.2",
         "spatie/laravel-medialibrary": "*",
         "symfony/dom-crawler": "*"
     },

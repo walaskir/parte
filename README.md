@@ -69,9 +69,9 @@ sudo systemctl restart nginx
 
 1. **Vytvořte nový site** v Laravel Forge s vaší doménou
 2. **Nastavte Git repository:**
-   - Repository: `vase-organizace/parte`
-   - Branch: `main`
-   - Deploy key: Zkopírujte a přidejte do GitHub/GitLab
+    - Repository: `vase-organizace/parte`
+    - Branch: `main`
+    - Deploy key: Zkopírujte a přidejte do GitHub/GitLab
 3. **Nastavte Environment Variables** (`.env`):
 
 ```env
@@ -130,7 +130,7 @@ if [ -f artisan ]; then
     $FORGE_PHP artisan route:cache
     $FORGE_PHP artisan view:cache
     $FORGE_PHP artisan optimize
-    
+
     # Restart queue workers
     $FORGE_PHP artisan queue:restart
 fi
@@ -148,17 +148,17 @@ V Forge přidejte nový **Scheduled Job**:
 
 - **Command:** `php /home/forge/vase-domena.cz/artisan schedule:run`
 - **User:** `forge`
-- **Frequency:** `Every Minute` (* * * * *)
+- **Frequency:** `Every Minute` (\* \* \* \* \*)
 
 Laravel scheduler automaticky spustí naplánované úkoly definované v `routes/console.php`.
 
 ### 6. Nastavení Queue Workers (Horizon)
 
 1. V Forge přidejte nový **Daemon**:
-   - **Command:** `php /home/forge/vase-domena.cz/artisan horizon`
-   - **User:** `forge`
-   - **Directory:** `/home/forge/vase-domena.cz`
-   - **Processes:** `1`
+    - **Command:** `php /home/forge/vase-domena.cz/artisan horizon`
+    - **User:** `forge`
+    - **Directory:** `/home/forge/vase-domena.cz`
+    - **Processes:** `1`
 
 2. Po každém deploymentu Horizon automaticky restartuje díky `php artisan queue:restart` v deploy scriptu
 
@@ -207,6 +207,7 @@ Schedule::command('parte:download')->daily();
 ```
 
 Nebo vytvořte vlastní frekvenci podle potřeby:
+
 - `->hourly()` - každou hodinu
 - `->dailyAt('09:00')` - denně v 9:00
 - `->twiceDaily(9, 15)` - 2× denně (9:00 a 15:00)
@@ -312,41 +313,44 @@ ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 ### Extrakční flow
 
 1. **Google Gemini 2.0 Flash** (primární, ~10-14s)
-   - Podporuje PDF i JPG
-   - Base64 encoding
-   - Temperature: 0.3 (text extraction), 0.5 (photo detection)
-   - Timeout 90s
+    - Podporuje PDF i JPG
+    - Base64 encoding
+    - Temperature: 0.3 (text extraction), 0.5 (photo detection)
+    - Timeout 90s
 
 2. **ZhipuAI GLM-4V** (fallback, ~2-5s)
-   - Podporuje PDF i JPG
-   - Base64 encoding
-   - Timeout 90s
+    - Podporuje PDF i JPG
+    - Base64 encoding
+    - Timeout 90s
 
 3. **Anthropic Claude** (secondary fallback, ~3-6s)
-   - Pouze JPG
-   - Vysoká přesnost
-   - Timeout 90s
+    - Pouze JPG
+    - Vysoká přesnost
+    - Timeout 90s
 
 ### Portrait Extraction (Extrakce fotografií)
 
 Systém používá **dvou-fázovou detekci** pro maximální spolehlivost při extrakci portrétů zemřelých:
 
 **Fáze 1: Hlavní extrakce**
+
 - Současná extrakce textu (jméno, data, oznámení) + foto
 - Gemini prompt s "CRITICAL PRIORITY #1 - PORTRAIT PHOTO DETECTION"
 - High-sensitivity pravidla (prefer false positives over false negatives)
 
 **Fáze 2: Photo-only režim (automatický fallback)**
+
 - Pokud Fáze 1 nedetekuje foto (`has_photo: false`)
 - Zjednodušený prompt zaměřený POUZE na detekci portrétu
 - Vyšší temperature (0.5) pro citlivější detekci
 - Zkouší všechny providery: Gemini → ZhipuAI → Anthropic
 
 **Technické detaily:**
+
 - **Detekce:** AI identifikuje fotografie a jejich pozici (bounding box v procentech)
 - **Auto-padding:** Automatické odstranění černých okrajů:
-  - `side=1%, bottom=1%` pro všechny portréty
-  - `top=1%` pouze pokud Y < 8% (foto vysoko = pravděpodobný černý pruh nahoře)
+    - `side=1%, bottom=1%` pro všechny portréty
+    - `top=1%` pouze pokud Y < 8% (foto vysoko = pravděpodobný černý pruh nahoře)
 - **Extrakce:** Automatické ořezání pomocí Imagick
 - **Úložiště:** Samostatně uloženo jako JPEG (max 400x400px, kvalita 85)
 - **Přístup:** `$deathNotice->getFirstMediaUrl('portrait')`

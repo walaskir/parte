@@ -8,12 +8,12 @@
 
 ## 📊 Quick Results
 
-| Rank | Model | Score | Speed | Usage | Status |
-|------|-------|-------|-------|-------|--------|
-| 🥇 | **Gemini 3 Flash** | 95/100 | ⚡ 5s | 🚀 UNLIMITED | ⭐ RECOMMENDED |
-| 🥈 | **Claude Sonnet 4.5** | 90/100 | 13s | 200-400/mo | ✅ Fallback |
-| 🥉 | **Gemini 2.5 Pro** | 85/100 | 24s | 🚀 UNLIMITED | ✅ Validation |
-| 4 | GPT-5.2 | 70/100 | 9s | ⚠️ Limited | ❌ Diacritic errors |
+| Rank | Model                 | Score  | Speed | Usage        | Status              |
+| ---- | --------------------- | ------ | ----- | ------------ | ------------------- |
+| 🥇   | **Gemini 3 Flash**    | 95/100 | ⚡ 5s | 🚀 UNLIMITED | ⭐ RECOMMENDED      |
+| 🥈   | **Claude Sonnet 4.5** | 90/100 | 13s   | 200-400/mo   | ✅ Fallback         |
+| 🥉   | **Gemini 2.5 Pro**    | 85/100 | 24s   | 🚀 UNLIMITED | ✅ Validation       |
+| 4    | GPT-5.2               | 70/100 | 9s    | ⚠️ Limited   | ❌ Diacritic errors |
 
 ---
 
@@ -31,6 +31,7 @@
 ## 🏆 Winner: Gemini 3 Flash Preview
 
 **Why it's the best:**
+
 - ⚡ **Fastest** - Only 5 seconds (vs 13s Claude, 24s Gemini Pro)
 - 🚀 **UNLIMITED** - No hard usage limit!
 - ✅ **High Quality** - 95/100 score
@@ -44,12 +45,14 @@
 ## 📋 What Was Tested
 
 ### Models Tested Successfully ✅
+
 1. **Claude Sonnet 4.5** - Highest accuracy, best formatting
 2. **Gemini 3 Flash** - FASTEST, UNLIMITED, recommended
 3. **Gemini 2.5 Pro** - UNLIMITED but slow (24s)
 4. **GPT-5.2** - Has diacritic errors (Ziẹć→Zięć, Sadowy→Sadový)
 
 ### Models That Failed ❌
+
 - `GEMINI-2.5-FLASH-IMAGE` - Invalid model name
 - `DEEPSEEK-V3.2` - Invalid model name
 - `QWEN3-MAX` - Not available
@@ -61,6 +64,7 @@
 ## 🎯 Production Recommendation
 
 ### Primary Provider
+
 ```bash
 VISION_PROVIDER=abacusai
 ABACUSAI_LLM_NAME=GEMINI-3-FLASH-PREVIEW
@@ -69,18 +73,21 @@ ABACUSAI_API_KEY=s2_xxx
 ```
 
 **Benefits:**
+
 - UNLIMITED usage (no hard cutoff)
 - 5-second response time
 - Perfect Polish/Czech diacritic preservation
 - $10-20/month flat rate
 
 ### Fallback Provider
+
 ```bash
 VISION_FALLBACK_PROVIDER=abacusai_claude
 ABACUSAI_FALLBACK_LLM_NAME=CLAUDE-SONNET-4-5-20250929
 ```
 
 **When to use:**
+
 - Gemini 3 Flash fails/times out
 - Need highest possible accuracy
 - Complex or low-quality documents
@@ -91,7 +98,9 @@ ABACUSAI_FALLBACK_LLM_NAME=CLAUDE-SONNET-4-5-20250929
 ## 📊 Key Findings
 
 ### Extraction Quality
+
 All tested models successfully extracted:
+
 - ✅ **Full Name:** Stanislav Raszka (clean, without "śp." prefix)
 - ✅ **Funeral Date:** 2026-01-12 (100% accurate)
 - ✅ **Complete Announcement:** Including opening quote "Będę żyć dalej..."
@@ -99,12 +108,14 @@ All tested models successfully extracted:
 - ❌ **Death Date:** None extracted it (but info exists in text)
 
 ### Diacritics Preservation
+
 - ✅ **Gemini 3 Flash** - Perfect (ą ć ę ł ń ó ś ź ż ř ý)
 - ✅ **Claude Sonnet 4.5** - Perfect
 - ✅ **Gemini 2.5 Pro** - Perfect
 - ❌ **GPT-5.2** - ERRORS (Ziẹć instead of Zięć, Sadowy instead of Sadový)
 
 ### Performance
+
 - ⚡ **Fastest:** Gemini 3 Flash (5s)
 - ⏱️ **Slowest:** Gemini 2.5 Pro (24s)
 - 💰 **Most Cost-Effective:** Gemini 3 Flash (UNLIMITED)
@@ -125,6 +136,7 @@ All tested models successfully extracted:
 ## 📸 Extracted Portrait
 
 **Portrait from Abacus.AI bounding box:**
+
 - File: `portrait_abacus_test.jpg` (33 KB)
 - Coordinates: x=39%, y=10%, width=30%, height=28%
 - Source: Claude Sonnet 4.5 photo detection
@@ -135,9 +147,10 @@ All tested models successfully extracted:
 
 **Endpoint:** `https://routellm.abacus.ai/v1/chat/completions`  
 **Format:** OpenAI-compatible Chat Completions API  
-**Auth:** `Authorization: Bearer {api_key}`  
+**Auth:** `Authorization: Bearer {api_key}`
 
 **Supported Parameters:**
+
 - `model` - Model name (e.g., `GEMINI-3-FLASH-PREVIEW`)
 - `messages` - Array with `role` + `content` (text + image_url)
 - `temperature` - 0.0 for deterministic output

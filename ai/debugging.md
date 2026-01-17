@@ -33,41 +33,41 @@ Create `playwright.config.js`:
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./tests/Browser",
-  fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: "html",
-  use: {
-    baseURL: process.env.APP_URL || "http://localhost:8000",
-    trace: "on-first-retry",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure",
-  },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+    testDir: "./tests/Browser",
+    fullyParallel: true,
+    forbidOnly: !!process.env.CI,
+    retries: process.env.CI ? 2 : 0,
+    workers: process.env.CI ? 1 : undefined,
+    reporter: "html",
+    use: {
+        baseURL: process.env.APP_URL || "http://localhost:8000",
+        trace: "on-first-retry",
+        screenshot: "only-on-failure",
+        video: "retain-on-failure",
     },
-    {
-      name: "firefox",
-      use: { ...devices["Desktop Firefox"] },
+    projects: [
+        {
+            name: "chromium",
+            use: { ...devices["Desktop Chrome"] },
+        },
+        {
+            name: "firefox",
+            use: { ...devices["Desktop Firefox"] },
+        },
+        {
+            name: "webkit",
+            use: { ...devices["Desktop Safari"] },
+        },
+        {
+            name: "mobile-chrome",
+            use: { ...devices["Pixel 5"] },
+        },
+    ],
+    webServer: {
+        command: "php artisan serve",
+        url: "http://localhost:8000",
+        reuseExistingServer: !process.env.CI,
     },
-    {
-      name: "webkit",
-      use: { ...devices["Desktop Safari"] },
-    },
-    {
-      name: "mobile-chrome",
-      use: { ...devices["Pixel 5"] },
-    },
-  ],
-  webServer: {
-    command: "php artisan serve",
-    url: "http://localhost:8000",
-    reuseExistingServer: !process.env.CI,
-  },
 });
 ```
 
@@ -225,77 +225,77 @@ Create `tests/Browser/utils/debug.js`:
 ```javascript
 // Playwright debugging utilities
 export class DebugUtils {
-  constructor(page) {
-    this.page = page;
-  }
+    constructor(page) {
+        this.page = page;
+    }
 
-  // Capture application state
-  async captureAppState(label = "APP_STATE") {
-    const state = await this.page.evaluate(() => {
-      return {
-        url: window.location.href,
-        title: document.title,
-        localStorage: { ...localStorage },
-        sessionStorage: { ...sessionStorage },
-        cookies: document.cookie,
-        userAgent: navigator.userAgent,
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight,
-        },
-      };
-    });
+    // Capture application state
+    async captureAppState(label = "APP_STATE") {
+        const state = await this.page.evaluate(() => {
+            return {
+                url: window.location.href,
+                title: document.title,
+                localStorage: { ...localStorage },
+                sessionStorage: { ...sessionStorage },
+                cookies: document.cookie,
+                userAgent: navigator.userAgent,
+                viewport: {
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                },
+            };
+        });
 
-    console.log(`[${label}]`, state);
-    return state;
-  }
+        console.log(`[${label}]`, state);
+        return state;
+    }
 
-  // Monitor network requests
-  async enableNetworkMonitoring() {
-    this.page.on("request", (request) => {
-      console.log(`[REQUEST] ${request.method()} ${request.url()}`);
-    });
+    // Monitor network requests
+    async enableNetworkMonitoring() {
+        this.page.on("request", (request) => {
+            console.log(`[REQUEST] ${request.method()} ${request.url()}`);
+        });
 
-    this.page.on("response", (response) => {
-      console.log(`[RESPONSE] ${response.status()} ${response.url()}`);
-    });
-  }
+        this.page.on("response", (response) => {
+            console.log(`[RESPONSE] ${response.status()} ${response.url()}`);
+        });
+    }
 
-  // Capture console logs
-  async enableConsoleLogging() {
-    this.page.on("console", (msg) => {
-      console.log(`[BROWSER_CONSOLE] ${msg.type()}: ${msg.text()}`);
-    });
-  }
+    // Capture console logs
+    async enableConsoleLogging() {
+        this.page.on("console", (msg) => {
+            console.log(`[BROWSER_CONSOLE] ${msg.type()}: ${msg.text()}`);
+        });
+    }
 
-  // Wait for Laravel to be ready
-  async waitForLaravel() {
-    await this.page.waitForFunction(() => {
-      return window.Laravel !== undefined;
-    });
-  }
+    // Wait for Laravel to be ready
+    async waitForLaravel() {
+        await this.page.waitForFunction(() => {
+            return window.Laravel !== undefined;
+        });
+    }
 
-  // Debug form interactions
-  async debugForm(selector) {
-    const formData = await this.page.evaluate((sel) => {
-      const form = document.querySelector(sel);
-      if (!form) return null;
+    // Debug form interactions
+    async debugForm(selector) {
+        const formData = await this.page.evaluate((sel) => {
+            const form = document.querySelector(sel);
+            if (!form) return null;
 
-      const data = new FormData(form);
-      const result = {};
-      for (let [key, value] of data.entries()) {
-        result[key] = value;
-      }
-      return {
-        action: form.action,
-        method: form.method,
-        data: result,
-      };
-    }, selector);
+            const data = new FormData(form);
+            const result = {};
+            for (let [key, value] of data.entries()) {
+                result[key] = value;
+            }
+            return {
+                action: form.action,
+                method: form.method,
+                data: result,
+            };
+        }, selector);
 
-    console.log("[FORM_DEBUG]", formData);
-    return formData;
-  }
+        console.log("[FORM_DEBUG]", formData);
+        return formData;
+    }
 }
 ```
 
@@ -419,27 +419,27 @@ import { test, expect } from "@playwright/test";
 import { DebugUtils } from "./utils/debug.js";
 
 test("user login with debugging", async ({ page }) => {
-  const debug = new DebugUtils(page);
+    const debug = new DebugUtils(page);
 
-  // Enable monitoring
-  await debug.enableNetworkMonitoring();
-  await debug.enableConsoleLogging();
+    // Enable monitoring
+    await debug.enableNetworkMonitoring();
+    await debug.enableConsoleLogging();
 
-  // Navigate and capture state
-  await page.goto("/login");
-  await debug.captureAppState("LOGIN_PAGE_LOADED");
+    // Navigate and capture state
+    await page.goto("/login");
+    await debug.captureAppState("LOGIN_PAGE_LOADED");
 
-  // Fill form with debugging
-  await page.fill('[name="email"]', "test@example.com");
-  await page.fill('[name="password"]', "password");
-  await debug.debugForm("form");
+    // Fill form with debugging
+    await page.fill('[name="email"]', "test@example.com");
+    await page.fill('[name="password"]', "password");
+    await debug.debugForm("form");
 
-  // Submit and verify
-  await page.click('[type="submit"]');
-  await debug.waitForLaravel();
-  await debug.captureAppState("AFTER_LOGIN");
+    // Submit and verify
+    await page.click('[type="submit"]');
+    await debug.waitForLaravel();
+    await debug.captureAppState("AFTER_LOGIN");
 
-  await expect(page).toHaveURL("/dashboard");
+    await expect(page).toHaveURL("/dashboard");
 });
 ```
 
