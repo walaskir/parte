@@ -37,11 +37,14 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
 
     /**
      * Create a new job instance.
+     *
+     * @param  bool  $forceRewrite  When true, overwrites all fields even if OCR returns null
      */
     public function __construct(
         public DeathNotice $deathNotice,
         public string $imagePath,
-        public bool $portraitsOnly = false
+        public bool $portraitsOnly = false,
+        public bool $forceRewrite = false
     ) {
         $this->onQueue('extraction');
     }
@@ -74,26 +77,40 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
             if (! $this->portraitsOnly) {
                 // Update death_date, announcement_text, has_photo, full_name, and opening_quote (keep existing funeral_date)
                 $updateData = [];
-                if (isset($ocrData['death_date']) && $ocrData['death_date']) {
-                    $updateData['death_date'] = $ocrData['death_date'];
-                }
-                if (isset($ocrData['announcement_text']) && $ocrData['announcement_text']) {
-                    $updateData['announcement_text'] = $ocrData['announcement_text'];
-                }
-                if (isset($ocrData['has_photo'])) {
-                    $updateData['has_photo'] = (bool) $ocrData['has_photo'];
-                }
-                if (isset($ocrData['full_name']) && $ocrData['full_name']) {
-                    $updateData['full_name'] = $ocrData['full_name'];
-                }
-                if (isset($ocrData['opening_quote'])) {
-                    $updateData['opening_quote'] = $ocrData['opening_quote'];
+
+                if ($this->forceRewrite) {
+                    // Force rewrite mode: update ALL fields with OCR data (even null values)
+                    $updateData = [
+                        'death_date' => $ocrData['death_date'] ?? null,
+                        'announcement_text' => $ocrData['announcement_text'] ?? null,
+                        'has_photo' => (bool) ($ocrData['has_photo'] ?? false),
+                        'full_name' => $ocrData['full_name'] ?? $this->deathNotice->full_name, // Keep name if OCR fails
+                        'opening_quote' => $ocrData['opening_quote'] ?? null,
+                    ];
+                } else {
+                    // Normal mode: only update fields that have values
+                    if (isset($ocrData['death_date']) && $ocrData['death_date']) {
+                        $updateData['death_date'] = $ocrData['death_date'];
+                    }
+                    if (isset($ocrData['announcement_text']) && $ocrData['announcement_text']) {
+                        $updateData['announcement_text'] = $ocrData['announcement_text'];
+                    }
+                    if (isset($ocrData['has_photo'])) {
+                        $updateData['has_photo'] = (bool) $ocrData['has_photo'];
+                    }
+                    if (isset($ocrData['full_name']) && $ocrData['full_name']) {
+                        $updateData['full_name'] = $ocrData['full_name'];
+                    }
+                    if (isset($ocrData['opening_quote'])) {
+                        $updateData['opening_quote'] = $ocrData['opening_quote'];
+                    }
                 }
 
                 if (! empty($updateData)) {
                     $this->deathNotice->update($updateData);
 
                     Log::info("Successfully extracted data for DeathNotice {$this->deathNotice->hash}", [
+                        'force_rewrite' => $this->forceRewrite,
                         'death_date' => $ocrData['death_date'] ?? null,
                         'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
                         'has_photo' => $ocrData['has_photo'] ?? false,

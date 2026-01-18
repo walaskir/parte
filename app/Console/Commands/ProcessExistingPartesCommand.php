@@ -352,7 +352,8 @@ class ProcessExistingPartesCommand extends Command
                 ExtractDeathDateAndAnnouncementJob::dispatch(
                     $notice,
                     $tempImagePath,
-                    $this->option('extract-portraits')
+                    $this->option('extract-portraits'),
+                    forceRewrite: true // Always rewrite all data in interactive selection mode
                 );
                 $processed++;
             } catch (\Exception $e) {
@@ -372,6 +373,7 @@ class ProcessExistingPartesCommand extends Command
         $this->info('Processing complete!');
         $this->info("- Dispatched to queue: {$processed}");
         $this->info("- Skipped: {$skipped}");
+        $this->info('Selected records will have ALL data re-extracted and overwritten.');
         $this->info("Run 'php artisan queue:work' or 'php artisan horizon' to process jobs.");
 
         return CommandAlias::SUCCESS;
