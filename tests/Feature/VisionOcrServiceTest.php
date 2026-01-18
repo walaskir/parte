@@ -16,9 +16,15 @@ class VisionOcrServiceTest extends TestCase
     {
         parent::setUp();
 
-        // Mock config for tests
-        Config::set('services.vision.provider', 'gemini');
-        Config::set('services.vision.fallback_provider', 'zhipuai');
+        // Mock config using NEW format (required)
+        Config::set('services.vision.text_provider', 'gemini');
+        Config::set('services.vision.text_fallback', 'zhipuai');
+        Config::set('services.vision.photo_provider', 'gemini');
+        Config::set('services.vision.photo_fallback', null);
+
+        // Clear deprecated config to avoid warnings
+        Config::set('services.vision.provider', null);
+        Config::set('services.vision.fallback_provider', null);
 
         Config::set('services.gemini.api_key', 'test-gemini-key');
         Config::set('services.gemini.model', 'gemini-3-flash-preview');
@@ -57,7 +63,7 @@ class VisionOcrServiceTest extends TestCase
         file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
 
         $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath);
+        $result = $service->extractTextFromImage($imagePath);
 
         $this->assertNotNull($result);
         $this->assertEquals('Jan Novák', $result['full_name']);
@@ -71,7 +77,8 @@ class VisionOcrServiceTest extends TestCase
 
     public function test_zhipuai_extraction_success(): void
     {
-        Config::set('services.vision.provider', 'zhipuai');
+        Config::set('services.vision.text_provider', 'zhipuai');
+        Config::set('services.vision.photo_provider', 'zhipuai');
 
         Http::fake([
             'open.bigmodel.cn/*' => Http::response([
@@ -90,7 +97,7 @@ class VisionOcrServiceTest extends TestCase
         file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
 
         $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath);
+        $result = $service->extractTextFromImage($imagePath);
 
         $this->assertNotNull($result);
         $this->assertEquals('Jan Novák', $result['full_name']);
@@ -121,7 +128,7 @@ class VisionOcrServiceTest extends TestCase
         file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
 
         $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath);
+        $result = $service->extractTextFromImage($imagePath);
 
         $this->assertNotNull($result);
         $this->assertEquals('Marie Dvořáková', $result['full_name']);
@@ -132,8 +139,9 @@ class VisionOcrServiceTest extends TestCase
 
     public function test_anthropic_fallback_when_zhipuai_fails(): void
     {
-        Config::set('services.vision.provider', 'zhipuai');
-        Config::set('services.vision.fallback_provider', 'anthropic');
+        Config::set('services.vision.text_provider', 'zhipuai');
+        Config::set('services.vision.text_fallback', 'anthropic');
+        Config::set('services.vision.photo_provider', 'zhipuai');
 
         Http::fake([
             'open.bigmodel.cn/*' => Http::response([], 500),
@@ -148,7 +156,7 @@ class VisionOcrServiceTest extends TestCase
         file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
 
         $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath);
+        $result = $service->extractTextFromImage($imagePath);
 
         $this->assertNotNull($result);
         $this->assertEquals('Marie Dvořáková', $result['full_name']);
@@ -169,7 +177,7 @@ class VisionOcrServiceTest extends TestCase
         file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
 
         $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath);
+        $result = $service->extractTextFromImage($imagePath);
 
         $this->assertNull($result);
 
@@ -179,39 +187,9 @@ class VisionOcrServiceTest extends TestCase
     public function test_extraction_returns_null_for_nonexistent_image(): void
     {
         $service = new VisionOcrService;
-        $result = $service->extractFromImage('/nonexistent/path/to/image.jpg');
+        $result = $service->extractTextFromImage('/nonexistent/path/to/image.jpg');
 
         $this->assertNull($result);
-    }
-
-    public function test_validates_extraction_for_death_date_mode(): void
-    {
-        Http::fake([
-            'generativelanguage.googleapis.com/*' => Http::response([
-                'candidates' => [
-                    [
-                        'content' => [
-                            'parts' => [
-                                [
-                                    'text' => '{"full_name":"Jan Novák","death_date":"2026-01-01","funeral_date":"2026-01-05","announcement_text":"Test"}',
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-            ], 200),
-        ]);
-
-        $imagePath = storage_path('app/test_parte.jpg');
-        file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
-
-        $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath, extractDeathDate: true);
-
-        $this->assertNotNull($result);
-        $this->assertEquals('2026-01-01', $result['death_date']);
-
-        @unlink($imagePath);
     }
 
     public function test_gemini_handles_invalid_json_with_fallback(): void
@@ -243,7 +221,7 @@ class VisionOcrServiceTest extends TestCase
         file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
 
         $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath);
+        $result = $service->extractTextFromImage($imagePath);
 
         $this->assertNotNull($result);
         $this->assertEquals('Marie Dvořáková', $result['full_name']);
@@ -251,14 +229,14 @@ class VisionOcrServiceTest extends TestCase
         @unlink($imagePath);
     }
 
-    public function test_tries_all_providers_when_configured(): void
+    public function test_tries_fallback_provider_when_primary_fails(): void
     {
-        Config::set('services.vision.provider', 'gemini');
-        Config::set('services.vision.fallback_provider', null);
+        Config::set('services.vision.text_provider', 'gemini');
+        Config::set('services.vision.text_fallback', 'anthropic');
+        Config::set('services.vision.photo_provider', 'gemini');
 
         Http::fake([
             'generativelanguage.googleapis.com/*' => Http::response([], 500),
-            'open.bigmodel.cn/*' => Http::response([], 500),
             'api.anthropic.com/*' => Http::response([
                 'content' => [
                     ['text' => '{"full_name":"Last Resort","death_date":"2026-01-03"}'],
@@ -270,7 +248,7 @@ class VisionOcrServiceTest extends TestCase
         file_put_contents($imagePath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
 
         $service = new VisionOcrService;
-        $result = $service->extractFromImage($imagePath);
+        $result = $service->extractTextFromImage($imagePath);
 
         $this->assertNotNull($result);
         $this->assertEquals('Last Resort', $result['full_name']);

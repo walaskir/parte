@@ -23,10 +23,17 @@ class DeathNotice extends Model implements HasMedia
         'has_photo',
     ];
 
-    protected $casts = [
-        'funeral_date' => 'date',
-        'death_date' => 'date',
-    ];
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'funeral_date' => 'date',
+            'death_date' => 'date',
+            'has_photo' => 'boolean',
+        ];
+    }
 
     public function registerMediaCollections(): void
     {
@@ -41,8 +48,8 @@ class DeathNotice extends Model implements HasMedia
             ->acceptsMimeTypes(['image/jpeg', 'image/png']);
     }
 
-    public function getFullNameAttribute(): string
+    public function getFullNameAttribute(): ?string
     {
-        return $this->attributes['full_name'];
+        return $this->attributes['full_name'] ?? null;
     }
 }

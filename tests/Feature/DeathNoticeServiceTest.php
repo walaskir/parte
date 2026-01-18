@@ -8,6 +8,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 test('service can get available sources', function () {
+    // Seed funeral services
+    $this->seed(\Database\Seeders\FuneralServiceSeeder::class);
+
     $pdfGenerator = new PdfGeneratorService;
     $service = new DeathNoticeService($pdfGenerator);
     $sources = $service->getAvailableSources();
@@ -19,33 +22,35 @@ test('service can get available sources', function () {
 test('death notice model has required fillable fields', function () {
     $notice = new DeathNotice([
         'hash' => 'test12345678',
-        'first_name' => 'Jan',
-        'last_name' => 'Novák',
+        'full_name' => 'Jan Novák',
         'funeral_date' => '2024-01-15',
         'source' => 'Test Source',
         'source_url' => 'https://example.com',
     ]);
 
     expect($notice->hash)->toBe('test12345678')
-        ->and($notice->first_name)->toBe('Jan')
-        ->and($notice->last_name)->toBe('Novák')
+        ->and($notice->full_name)->toBe('Jan Novák')
         ->and($notice->source)->toBe('Test Source');
 });
 
 test('death notice full name accessor works', function () {
     $notice = new DeathNotice([
-        'first_name' => 'Jan',
-        'last_name' => 'Novák',
+        'full_name' => 'Jan Novák',
     ]);
 
     expect($notice->full_name)->toBe('Jan Novák');
 });
 
+test('death notice full name accessor returns null for missing value', function () {
+    $notice = new DeathNotice([]);
+
+    expect($notice->full_name)->toBeNull();
+});
+
 test('death notice hash is unique', function () {
     DeathNotice::create([
         'hash' => 'unique123456',
-        'first_name' => 'Jan',
-        'last_name' => 'Novák',
+        'full_name' => 'Jan Novák',
         'source' => 'Test',
         'source_url' => 'https://example.com',
     ]);
@@ -53,8 +58,7 @@ test('death notice hash is unique', function () {
     expect(function () {
         DeathNotice::create([
             'hash' => 'unique123456',
-            'first_name' => 'Petr',
-            'last_name' => 'Dvořák',
+            'full_name' => 'Petr Dvořák',
             'source' => 'Test',
             'source_url' => 'https://example.com',
         ]);
@@ -64,8 +68,7 @@ test('death notice hash is unique', function () {
 test('death notice can be created with valid data', function () {
     $notice = DeathNotice::create([
         'hash' => 'abcdef123456',
-        'first_name' => 'Marie',
-        'last_name' => 'Svobodová',
+        'full_name' => 'Marie Svobodová',
         'funeral_date' => '2024-02-20',
         'source' => 'Test Source',
         'source_url' => 'https://example.com/notice',
@@ -73,8 +76,7 @@ test('death notice can be created with valid data', function () {
 
     $this->assertDatabaseHas('death_notices', [
         'hash' => 'abcdef123456',
-        'first_name' => 'Marie',
-        'last_name' => 'Svobodová',
+        'full_name' => 'Marie Svobodová',
     ]);
 
     expect($notice)->toBeInstanceOf(DeathNotice::class)
