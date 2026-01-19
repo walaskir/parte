@@ -36,34 +36,68 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
     public int $backoff = 60;
 
     /**
+     * Available fields for extraction.
+     */
+    public const FIELD_FULL_NAME = 'full_name';
+
+    public const FIELD_OPENING_QUOTE = 'opening_quote';
+
+    public const FIELD_DEATH_DATE = 'death_date';
+
+    public const FIELD_ANNOUNCEMENT_TEXT = 'announcement_text';
+
+    public const FIELD_PORTRAIT = 'portrait';
+
+    public const FIELD_ALL = 'all';
+
+    /**
      * Create a new job instance.
      *
-     * @param  bool  $forceRewrite  When true, overwrites all fields even if OCR returns null
+     * @param  array<string>  $fieldsToExtract  Fields to extract: 'all', 'full_name', 'opening_quote', 'death_date', 'announcement_text', 'portrait'
      */
     public function __construct(
         public DeathNotice $deathNotice,
         public string $imagePath,
-        public bool $portraitsOnly = false,
-        public bool $forceRewrite = false
+        public array $fieldsToExtract = [self::FIELD_ALL]
     ) {
         $this->onQueue('extraction');
     }
 
     /**
-     * Execute the job - extract death_date from parte image using OCR.
+     * Check if a specific field should be extracted.
+     */
+    private function shouldExtractField(string $field): bool
+    {
+        return in_array(self::FIELD_ALL, $this->fieldsToExtract) || in_array($field, $this->fieldsToExtract);
+    }
+
+    /**
+     * Check if any text field should be extracted.
+     */
+    private function shouldExtractTextFields(): bool
+    {
+        return $this->shouldExtractField(self::FIELD_FULL_NAME)
+            || $this->shouldExtractField(self::FIELD_OPENING_QUOTE)
+            || $this->shouldExtractField(self::FIELD_DEATH_DATE)
+            || $this->shouldExtractField(self::FIELD_ANNOUNCEMENT_TEXT);
+    }
+
+    /**
+     * Execute the job - extract data from parte image using OCR.
      */
     public function handle(VisionOcrService $visionOcrService): void
     {
-        Log::info("Starting death_date extraction for DeathNotice {$this->deathNotice->hash}", [
+        Log::info("Starting extraction for DeathNotice {$this->deathNotice->hash}", [
             'id' => $this->deathNotice->id,
             'hash' => $this->deathNotice->hash,
             'source' => $this->deathNotice->source,
+            'fields_to_extract' => $this->fieldsToExtract,
             'attempt' => $this->attempts(),
         ]);
 
         try {
             if (! file_exists($this->imagePath)) {
-                Log::error("Image file not found for death_date extraction: {$this->imagePath}");
+                Log::error("Image file not found for extraction: {$this->imagePath}");
                 throw new \Exception("Image file not found: {$this->imagePath}");
             }
 
@@ -73,78 +107,60 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                 $this->deathNotice->full_name
             );
 
-            // Extract text data ONLY if NOT portraits-only mode
-            if (! $this->portraitsOnly) {
-                // Update death_date, announcement_text, has_photo, full_name, and opening_quote (keep existing funeral_date)
-                $updateData = [];
+            // Build update data based on selected fields (always force rewrite selected fields)
+            $updateData = [];
 
-                if ($this->forceRewrite) {
-                    // Force rewrite mode: update ALL fields with OCR data (even null values)
-                    $updateData = [
-                        'death_date' => $ocrData['death_date'] ?? null,
-                        'announcement_text' => $ocrData['announcement_text'] ?? null,
-                        'has_photo' => (bool) ($ocrData['has_photo'] ?? false),
-                        'full_name' => $ocrData['full_name'] ?? $this->deathNotice->full_name, // Keep name if OCR fails
-                        'opening_quote' => $ocrData['opening_quote'] ?? null,
-                    ];
-                } else {
-                    // Normal mode: only update fields that have values
-                    if (isset($ocrData['death_date']) && $ocrData['death_date']) {
-                        $updateData['death_date'] = $ocrData['death_date'];
-                    }
-                    if (isset($ocrData['announcement_text']) && $ocrData['announcement_text']) {
-                        $updateData['announcement_text'] = $ocrData['announcement_text'];
-                    }
-                    if (isset($ocrData['has_photo'])) {
-                        $updateData['has_photo'] = (bool) $ocrData['has_photo'];
-                    }
-                    if (isset($ocrData['full_name']) && $ocrData['full_name']) {
-                        $updateData['full_name'] = $ocrData['full_name'];
-                    }
-                    if (isset($ocrData['opening_quote'])) {
-                        $updateData['opening_quote'] = $ocrData['opening_quote'];
-                    }
-                }
+            if ($this->shouldExtractField(self::FIELD_FULL_NAME)) {
+                $updateData['full_name'] = $ocrData['full_name'] ?? $this->deathNotice->full_name;
+            }
 
-                if (! empty($updateData)) {
-                    $this->deathNotice->update($updateData);
+            if ($this->shouldExtractField(self::FIELD_OPENING_QUOTE)) {
+                $updateData['opening_quote'] = $ocrData['opening_quote'] ?? null;
+            }
 
-                    Log::info("Successfully extracted data for DeathNotice {$this->deathNotice->hash}", [
-                        'force_rewrite' => $this->forceRewrite,
-                        'death_date' => $ocrData['death_date'] ?? null,
-                        'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
-                        'has_photo' => $ocrData['has_photo'] ?? false,
-                        'full_name' => $ocrData['full_name'] ?? null,
-                        'opening_quote' => isset($ocrData['opening_quote']) ? substr($ocrData['opening_quote'], 0, 50).'...' : null,
-                    ]);
-                } else {
-                    Log::warning("No death_date found in OCR data for DeathNotice {$this->deathNotice->hash}", [
-                        'attempt' => $this->attempts(),
-                    ]);
-                }
-            } else {
-                // Portraits-only mode: only update has_photo flag
-                $this->deathNotice->update([
-                    'has_photo' => (bool) ($ocrData['has_photo'] ?? false),
-                ]);
+            if ($this->shouldExtractField(self::FIELD_DEATH_DATE)) {
+                $updateData['death_date'] = $ocrData['death_date'] ?? null;
+            }
 
-                Log::info("Portraits-only mode: skipped text extraction for DeathNotice {$this->deathNotice->hash}", [
+            if ($this->shouldExtractField(self::FIELD_ANNOUNCEMENT_TEXT)) {
+                $updateData['announcement_text'] = $ocrData['announcement_text'] ?? null;
+            }
+
+            // Always update has_photo if any text field is being extracted
+            if ($this->shouldExtractTextFields() && isset($ocrData['has_photo'])) {
+                $updateData['has_photo'] = (bool) $ocrData['has_photo'];
+            }
+
+            if (! empty($updateData)) {
+                $this->deathNotice->update($updateData);
+
+                Log::info("Successfully extracted data for DeathNotice {$this->deathNotice->hash}", [
+                    'fields_extracted' => array_keys($updateData),
+                    'death_date' => $ocrData['death_date'] ?? null,
+                    'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
                     'has_photo' => $ocrData['has_photo'] ?? false,
+                    'full_name' => $ocrData['full_name'] ?? null,
+                    'opening_quote' => isset($ocrData['opening_quote']) ? substr($ocrData['opening_quote'], 0, 50).'...' : null,
+                ]);
+            } else {
+                Log::warning("No fields to update for DeathNotice {$this->deathNotice->hash}", [
+                    'attempt' => $this->attempts(),
                 ]);
             }
 
-            // Extract portrait if photo detected and portrait extraction is enabled
-            if (config('services.parte.extract_portraits', true) && ! empty($ocrData['has_photo']) && ! empty($ocrData['photo_bbox'])) {
+            // Extract portrait if requested and photo detected
+            $shouldExtractPortrait = $this->shouldExtractField(self::FIELD_PORTRAIT);
+            if ($shouldExtractPortrait && config('services.parte.extract_portraits', true) && ! empty($ocrData['has_photo']) && ! empty($ocrData['photo_bbox'])) {
                 $this->extractAndSavePortrait($ocrData['photo_bbox'], $ocrData['photo_description'] ?? null);
             }
 
             // Clean up temporary image file after successful extraction
             if (file_exists($this->imagePath)) {
                 unlink($this->imagePath);
-                Log::debug("Cleaned up temporary image after death_date extraction: {$this->imagePath}");
+                Log::debug("Cleaned up temporary image after extraction: {$this->imagePath}");
             }
         } catch (\Exception $e) {
-            Log::error("Death_date extraction failed for DeathNotice {$this->deathNotice->hash}", [
+            Log::error("Extraction failed for DeathNotice {$this->deathNotice->hash}", [
                 'error' => $e->getMessage(),
                 'attempt' => $this->attempts(),
                 'max_tries' => $this->tries,

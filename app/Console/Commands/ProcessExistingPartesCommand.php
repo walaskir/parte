@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Jobs\ExtractDeathDateAndAnnouncementJob;
 use App\Models\DeathNotice;
 use Illuminate\Console\Command;
-use Imagick;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 
 use function Laravel\Prompts\multiselect;
@@ -13,184 +12,69 @@ use function Laravel\Prompts\select;
 
 class ProcessExistingPartesCommand extends Command
 {
-    protected $signature = 'parte:process-existing
-        {--select : Interactive selection of specific records to process}
-        {--missing-name : Only process records missing full_name}
-        {--missing-death-date : Only process records missing death_date}
-        {--missing-announcement-text : Only process records missing announcement_text}
-        {--missing-opening-quote : Only process records missing opening_quote}
-        {--extract-portraits : Extract portraits from all parte without photos}
-        {--force : Force re-extraction even if data already exists}';
+    protected $signature = 'parte:process-existing';
 
-    protected $description = 'Process existing parte records to extract death date, announcement text, or portraits from PDFs';
+    protected $description = 'Interaktivni pruvodce pro re-extrakci dat z parte';
 
     private const RECORDS_PER_PAGE = 15;
 
-    public function handle(): int
-    {
-        // Interactive selection mode
-        if ($this->option('select')) {
-            return $this->handleInteractiveSelection();
-        }
-
-        $query = DeathNotice::query();
-
-        if ($this->option('extract-portraits')) {
-            if ($this->option('force')) {
-                // FORCE: Re-extract ALL portraits
-                $query->whereNotNull('id'); // All records
-                $this->warn('⚠️  FORCE mode: Re-extracting portraits from ALL parte (including existing)...');
-            } else {
-                // NORMAL: Only parte without photos
-                $query->where(function ($query) {
-                    $query->where('has_photo', false)
-                        ->orWhereNull('has_photo');
-                });
-                $this->info('Extracting portraits from parte without photos...');
-            }
-        } elseif ($this->option('missing-name') || $this->option('missing-death-date') || $this->option('missing-announcement-text') || $this->option('missing-opening-quote')) {
-            $query->where(function ($q) {
-                if ($this->option('missing-name')) {
-                    $q->orWhereNull('full_name')->orWhere('full_name', '');
-                }
-                if ($this->option('missing-death-date')) {
-                    $q->orWhereNull('death_date');
-                }
-                if ($this->option('missing-announcement-text')) {
-                    $q->orWhereNull('announcement_text');
-                }
-                if ($this->option('missing-opening-quote')) {
-                    $q->orWhereNull('opening_quote');
-                }
-            });
-
-            if ($this->option('force')) {
-                $this->warn('⚠️  FORCE mode: Re-extracting from ALL parte (ignoring existing data)...');
-                $query = DeathNotice::query()->whereNotNull('id');
-            }
-        } else {
-            // No options = process records missing either full_name, death_date, announcement_text, or opening_quote
-            if ($this->option('force')) {
-                $query->whereNotNull('id'); // All records
-                $this->warn('⚠️  FORCE mode: Re-extracting ALL data from ALL parte...');
-            } else {
-                $query->where(function ($q) {
-                    $q->whereNull('full_name')
-                        ->orWhere('full_name', '')
-                        ->orWhereNull('death_date')
-                        ->orWhereNull('announcement_text')
-                        ->orWhereNull('opening_quote');
-                });
-            }
-        }
-
-        $notices = $query->get();
-
-        if ($notices->isEmpty()) {
-            $this->info('No notices found to process.');
-
-            return CommandAlias::SUCCESS;
-        }
-
-        $this->info("Found {$notices->count()} notices to process.");
-        $bar = $this->output->createProgressBar($notices->count());
-
-        $processed = 0;
-        $skipped = 0;
-
-        foreach ($notices as $notice) {
-            $media = $notice->getFirstMedia('pdf');
-
-            if (! $media) {
-                $this->warn("Notice {$notice->hash} has no PDF media, skipping.");
-                $skipped++;
-                $bar->advance();
-
-                continue;
-            }
-
-            $pdfPath = $media->getPath();
-
-            if (! file_exists($pdfPath)) {
-                $this->warn("PDF file not found for notice {$notice->hash}, skipping.");
-                $skipped++;
-                $bar->advance();
-
-                continue;
-            }
-
-            // Convert PDF to image for OCR
-            $tempImagePath = storage_path('app/temp/process_existing_'.uniqid().'.jpg');
-            $tempDir = dirname($tempImagePath);
-
-            if (! file_exists($tempDir)) {
-                mkdir($tempDir, 0755, true);
-            }
-
-            try {
-                // Convert PDF to JPG using Imagick
-                $imagick = new \Imagick;
-                $imagick->setResolution(300, 300);
-                $imagick->readImage($pdfPath.'[0]'); // Read first page only
-                $imagick->setImageFormat('jpeg');
-                $imagick->setImageCompressionQuality(90);
-                $imagick->writeImage($tempImagePath);
-                $imagick->clear();
-                $imagick->destroy();
-
-                if (! file_exists($tempImagePath)) {
-                    $this->warn("Failed to convert PDF to JPG for {$notice->full_name}");
-                    $skipped++;
-
-                    continue;
-                }
-
-                // Dispatch OCR job
-                ExtractDeathDateAndAnnouncementJob::dispatch(
-                    $notice,
-                    $tempImagePath,
-                    $this->option('extract-portraits') // Pass portraitsOnly flag
-                );
-                $processed++;
-            } catch (\Exception $e) {
-                $this->error("Failed to process notice {$notice->hash}: {$e->getMessage()}");
-                if (file_exists($tempImagePath)) {
-                    unlink($tempImagePath);
-                }
-                $skipped++;
-            }
-
-            $bar->advance();
-        }
-
-        $bar->finish();
-        $this->newLine(2);
-
-        $this->info('Processing complete!');
-        $this->info("- Dispatched to queue: {$processed}");
-        $this->info("- Skipped: {$skipped}");
-        $this->info("Run 'php artisan queue:work' or 'php artisan horizon' to process jobs.");
-
-        return CommandAlias::SUCCESS;
-    }
-
     /**
-     * Handle interactive selection of records to process
+     * Field options for extraction selection.
+     *
+     * @var array<string, string>
      */
-    private function handleInteractiveSelection(): int
+    private array $fieldOptions = [
+        ExtractDeathDateAndAnnouncementJob::FIELD_ALL => 'Vse (kompletni re-extrakce)',
+        ExtractDeathDateAndAnnouncementJob::FIELD_FULL_NAME => 'Jmeno',
+        ExtractDeathDateAndAnnouncementJob::FIELD_OPENING_QUOTE => 'Citat',
+        ExtractDeathDateAndAnnouncementJob::FIELD_DEATH_DATE => 'Datum umrti',
+        ExtractDeathDateAndAnnouncementJob::FIELD_ANNOUNCEMENT_TEXT => 'Text oznameni',
+        ExtractDeathDateAndAnnouncementJob::FIELD_PORTRAIT => 'Portret (fotografie)',
+    ];
+
+    public function handle(): int
     {
         $totalRecords = DeathNotice::count();
 
         if ($totalRecords === 0) {
-            $this->info('No parte records found in database.');
+            $this->info('Zadne parte zaznamy nenalezeny v databazi.');
 
             return CommandAlias::SUCCESS;
         }
 
-        $this->info("Interactive selection mode - {$totalRecords} total records");
-        $this->info('Navigate pages and select records to process.');
+        $this->info("Interaktivni pruvodce pro re-extrakci dat - {$totalRecords} celkem zaznamu");
+        $this->info('Navigujte stranky a vyberte zaznamy ke zpracovani.');
         $this->newLine();
 
+        // Step 1: Record selection
+        $selectedIds = $this->selectRecords($totalRecords);
+
+        if (empty($selectedIds)) {
+            $this->info('Operace zrusena.');
+
+            return CommandAlias::SUCCESS;
+        }
+
+        // Step 2: Field selection
+        $selectedFields = $this->selectFields();
+
+        if (empty($selectedFields)) {
+            $this->info('Operace zrusena.');
+
+            return CommandAlias::SUCCESS;
+        }
+
+        // Step 3: Process selected records with selected fields
+        return $this->processRecords($selectedIds, $selectedFields);
+    }
+
+    /**
+     * Step 1: Interactive record selection with pagination.
+     *
+     * @return array<int>
+     */
+    private function selectRecords(int $totalRecords): array
+    {
         $selectedIds = [];
         $currentPage = 1;
         $totalPages = (int) ceil($totalRecords / self::RECORDS_PER_PAGE);
@@ -227,8 +111,8 @@ class ProcessExistingPartesCommand extends Command
             }
 
             // Show page header
-            $this->info("Page {$currentPage}/{$totalPages} | Selected: ".count($selectedIds).' records');
-            $this->line('ID   | Hash     | Name                      | Death Date | Source');
+            $this->info("Strana {$currentPage}/{$totalPages} | Vybrano: ".count($selectedIds).' zaznamu');
+            $this->line('ID   | Hash     | Jmeno                     | Umrti      | Zdroj');
             $this->line(str_repeat('-', 80));
 
             // Get already selected IDs on this page for defaults
@@ -236,11 +120,11 @@ class ProcessExistingPartesCommand extends Command
 
             // Multiselect for current page
             $pageSelection = multiselect(
-                label: 'Select records to process (Space to toggle, Enter to confirm page):',
+                label: 'Vyberte zaznamy ke zpracovani (Mezera pro prepnuti, Enter pro potvrzeni):',
                 options: $options,
                 default: $pageDefaults,
                 scroll: self::RECORDS_PER_PAGE,
-                hint: 'Use arrow keys to navigate, Space to select/deselect'
+                hint: 'Sipky pro navigaci, Mezera pro oznaceni/odznaceni'
             );
 
             // Update selected IDs - remove deselected from this page, add newly selected
@@ -253,20 +137,20 @@ class ProcessExistingPartesCommand extends Command
             $navOptions = [];
 
             if ($currentPage > 1) {
-                $navOptions['prev'] = 'Previous page';
+                $navOptions['prev'] = 'Predchozi strana';
             }
 
             if ($currentPage < $totalPages) {
-                $navOptions['next'] = 'Next page';
+                $navOptions['next'] = 'Dalsi strana';
             }
 
-            $navOptions['process'] = 'Process '.count($selectedIds).' selected records';
-            $navOptions['cancel'] = 'Cancel';
+            $navOptions['process'] = 'Zpracovat '.count($selectedIds).' vybranych zaznamu';
+            $navOptions['cancel'] = 'Zrusit';
 
             $action = select(
-                label: 'What would you like to do?',
+                label: 'Co chcete udelat?',
                 options: $navOptions,
-                hint: count($selectedIds).' records selected across all pages'
+                hint: count($selectedIds).' zaznamu vybrano pres vsechny stranky'
             );
 
             match ($action) {
@@ -277,26 +161,69 @@ class ProcessExistingPartesCommand extends Command
             };
 
             if ($action === 'cancel') {
-                $this->info('Operation cancelled.');
-
-                return CommandAlias::SUCCESS;
+                return [];
             }
 
             if ($action === 'process') {
+                if (empty($selectedIds)) {
+                    $this->warn('Zadne zaznamy nevybrany.');
+
+                    continue;
+                }
+
                 break;
             }
         }
 
-        if (empty($selectedIds)) {
-            $this->warn('No records selected.');
+        return $selectedIds;
+    }
 
-            return CommandAlias::SUCCESS;
+    /**
+     * Step 2: Field selection for extraction.
+     *
+     * @return array<string>
+     */
+    private function selectFields(): array
+    {
+        $this->newLine();
+        $this->info('Nyni vyberte pole, ktera chcete extrahovat:');
+
+        $selectedFields = multiselect(
+            label: 'Ktera pole chcete extrahovat?',
+            options: $this->fieldOptions,
+            default: [ExtractDeathDateAndAnnouncementJob::FIELD_ALL],
+            scroll: count($this->fieldOptions),
+            hint: 'Vybrana pole budou vzdy prepsana novymi hodnotami'
+        );
+
+        if (empty($selectedFields)) {
+            return [];
         }
 
-        // Process selected records
+        // If 'all' is selected, return only 'all'
+        if (in_array(ExtractDeathDateAndAnnouncementJob::FIELD_ALL, $selectedFields)) {
+            return [ExtractDeathDateAndAnnouncementJob::FIELD_ALL];
+        }
+
+        return $selectedFields;
+    }
+
+    /**
+     * Step 3: Process selected records with selected fields.
+     *
+     * @param  array<int>  $selectedIds
+     * @param  array<string>  $selectedFields
+     */
+    private function processRecords(array $selectedIds, array $selectedFields): int
+    {
         $notices = DeathNotice::whereIn('id', $selectedIds)->get();
 
-        $this->info("Processing {$notices->count()} selected records...");
+        // Show summary
+        $this->newLine();
+        $this->info("Zpracovani {$notices->count()} zaznamu...");
+        $this->info('Pole k extrakci: '.implode(', ', array_map(fn ($f) => $this->fieldOptions[$f] ?? $f, $selectedFields)));
+        $this->newLine();
+
         $bar = $this->output->createProgressBar($notices->count());
 
         $processed = 0;
@@ -306,7 +233,7 @@ class ProcessExistingPartesCommand extends Command
             $media = $notice->getFirstMedia('pdf');
 
             if (! $media) {
-                $this->warn("Notice {$notice->hash} has no PDF media, skipping.");
+                $this->warn("Parte {$notice->hash} nema PDF, preskakuji.");
                 $skipped++;
                 $bar->advance();
 
@@ -316,7 +243,7 @@ class ProcessExistingPartesCommand extends Command
             $pdfPath = $media->getPath();
 
             if (! file_exists($pdfPath)) {
-                $this->warn("PDF file not found for notice {$notice->hash}, skipping.");
+                $this->warn("PDF soubor nenalezen pro parte {$notice->hash}, preskakuji.");
                 $skipped++;
                 $bar->advance();
 
@@ -342,7 +269,7 @@ class ProcessExistingPartesCommand extends Command
                 $imagick->destroy();
 
                 if (! file_exists($tempImagePath)) {
-                    $this->warn("Failed to convert PDF to JPG for {$notice->full_name}");
+                    $this->warn("Nepodarilo se konvertovat PDF na JPG pro {$notice->full_name}");
                     $skipped++;
                     $bar->advance();
 
@@ -352,12 +279,11 @@ class ProcessExistingPartesCommand extends Command
                 ExtractDeathDateAndAnnouncementJob::dispatch(
                     $notice,
                     $tempImagePath,
-                    $this->option('extract-portraits'),
-                    forceRewrite: true // Always rewrite all data in interactive selection mode
+                    $selectedFields
                 );
                 $processed++;
             } catch (\Exception $e) {
-                $this->error("Failed to process notice {$notice->hash}: {$e->getMessage()}");
+                $this->error("Chyba pri zpracovani parte {$notice->hash}: {$e->getMessage()}");
                 if (file_exists($tempImagePath)) {
                     unlink($tempImagePath);
                 }
@@ -370,11 +296,11 @@ class ProcessExistingPartesCommand extends Command
         $bar->finish();
         $this->newLine(2);
 
-        $this->info('Processing complete!');
-        $this->info("- Dispatched to queue: {$processed}");
-        $this->info("- Skipped: {$skipped}");
-        $this->info('Selected records will have ALL data re-extracted and overwritten.');
-        $this->info("Run 'php artisan queue:work' or 'php artisan horizon' to process jobs.");
+        $this->info('Zpracovani dokonceno!');
+        $this->info("- Odeslano do fronty: {$processed}");
+        $this->info("- Preskoceno: {$skipped}");
+        $this->info('Vybrana pole budou prepsana novymi hodnotami z OCR.');
+        $this->info("Spustte 'php artisan queue:work --queue=extraction' nebo 'php artisan horizon' pro zpracovani jobu.");
 
         return CommandAlias::SUCCESS;
     }
