@@ -29,7 +29,6 @@ class ProcessExistingPartesCommand extends Command
         ExtractDeathDateAndAnnouncementJob::FIELD_OPENING_QUOTE => 'Citat',
         ExtractDeathDateAndAnnouncementJob::FIELD_DEATH_DATE => 'Datum umrti',
         ExtractDeathDateAndAnnouncementJob::FIELD_ANNOUNCEMENT_TEXT => 'Text oznameni',
-        ExtractDeathDateAndAnnouncementJob::FIELD_PORTRAIT => 'Portret (fotografie)',
     ];
 
     public function handle(): int
@@ -230,65 +229,83 @@ class ProcessExistingPartesCommand extends Command
         $skipped = 0;
 
         foreach ($notices as $notice) {
-            $media = $notice->getFirstMedia('pdf');
+            $tempImagePath = null;
+            $needsCleanup = false;
 
-            if (! $media) {
-                $this->warn("Parte {$notice->hash} nema PDF, preskakuji.");
-                $skipped++;
-                $bar->advance();
+            // Priority 1: Original image from MediaLibrary (PS BK)
+            $imageMedia = $notice->getFirstMedia('original_image');
+            if ($imageMedia && file_exists($imageMedia->getPath())) {
+                // Use MediaLibrary image directly - no temp file needed
+                $tempImagePath = null; // Job will read from MediaLibrary
+                $needsCleanup = false;
+            } else {
+                // Priority 2: Convert PDF to image
+                $pdfMedia = $notice->getFirstMedia('pdf');
 
-                continue;
-            }
-
-            $pdfPath = $media->getPath();
-
-            if (! file_exists($pdfPath)) {
-                $this->warn("PDF soubor nenalezen pro parte {$notice->hash}, preskakuji.");
-                $skipped++;
-                $bar->advance();
-
-                continue;
-            }
-
-            // Convert PDF to image for OCR
-            $tempImagePath = storage_path('app/temp/process_existing_'.uniqid().'.jpg');
-            $tempDir = dirname($tempImagePath);
-
-            if (! file_exists($tempDir)) {
-                mkdir($tempDir, 0755, true);
-            }
-
-            try {
-                $imagick = new \Imagick;
-                $imagick->setResolution(300, 300);
-                $imagick->readImage($pdfPath.'[0]');
-                $imagick->setImageFormat('jpeg');
-                $imagick->setImageCompressionQuality(90);
-                $imagick->writeImage($tempImagePath);
-                $imagick->clear();
-                $imagick->destroy();
-
-                if (! file_exists($tempImagePath)) {
-                    $this->warn("Nepodarilo se konvertovat PDF na JPG pro {$notice->full_name}");
+                if (! $pdfMedia) {
+                    $this->warn("Parte {$notice->hash} nema ani obrazek ani PDF, preskakuji.");
                     $skipped++;
                     $bar->advance();
 
                     continue;
                 }
 
-                ExtractDeathDateAndAnnouncementJob::dispatch(
-                    $notice,
-                    $tempImagePath,
-                    $selectedFields
-                );
-                $processed++;
-            } catch (\Exception $e) {
-                $this->error("Chyba pri zpracovani parte {$notice->hash}: {$e->getMessage()}");
-                if (file_exists($tempImagePath)) {
-                    unlink($tempImagePath);
+                $pdfPath = $pdfMedia->getPath();
+
+                if (! file_exists($pdfPath)) {
+                    $this->warn("PDF soubor nenalezen pro parte {$notice->hash}, preskakuji.");
+                    $skipped++;
+                    $bar->advance();
+
+                    continue;
                 }
-                $skipped++;
+
+                // Convert PDF to image for OCR
+                $tempImagePath = storage_path('app/temp/process_existing_'.uniqid().'.jpg');
+                $tempDir = dirname($tempImagePath);
+
+                if (! file_exists($tempDir)) {
+                    mkdir($tempDir, 0755, true);
+                }
+
+                try {
+                    $imagick = new \Imagick;
+                    $imagick->setResolution(300, 300);
+                    $imagick->readImage($pdfPath.'[0]');
+                    $imagick->setImageFormat('jpeg');
+                    $imagick->setImageCompressionQuality(90);
+                    $imagick->writeImage($tempImagePath);
+                    $imagick->clear();
+                    $imagick->destroy();
+
+                    if (! file_exists($tempImagePath)) {
+                        $this->warn("Nepodarilo se konvertovat PDF na JPG pro {$notice->full_name}");
+                        $skipped++;
+                        $bar->advance();
+
+                        continue;
+                    }
+
+                    $needsCleanup = true;
+                } catch (\Exception $e) {
+                    $this->error("Chyba pri zpracovani parte {$notice->hash}: {$e->getMessage()}");
+                    if ($tempImagePath && file_exists($tempImagePath)) {
+                        unlink($tempImagePath);
+                    }
+                    $skipped++;
+                    $bar->advance();
+
+                    continue;
+                }
             }
+
+            // Dispatch job - pass temp path only if cleanup is needed
+            ExtractDeathDateAndAnnouncementJob::dispatch(
+                $notice,
+                $needsCleanup ? $tempImagePath : null,
+                $selectedFields
+            );
+            $processed++;
 
             $bar->advance();
         }

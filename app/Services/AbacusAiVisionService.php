@@ -63,147 +63,6 @@ class AbacusAiVisionService
     }
 
     /**
-     * Detect portrait photo and get bounding box
-     *
-     * @param  string  $imagePath  Path to image file
-     * @param  string  $model  Model to use (default: CLAUDE-SONNET-4-5-20250929)
-     * @return array{has_photo: bool, photo_bounds: ?array{x: float, y: float, width: float, height: float}}
-     *
-     * @throws \Exception
-     */
-    public function detectPortrait(string $imagePath, string $model = self::MODEL_CLAUDE_SONNET_45): array
-    {
-        $imageBase64 = base64_encode(file_get_contents($imagePath));
-
-        $prompt = 'Analyze this death notice image. Does it contain a portrait photo of the deceased person? '.
-            'If YES, provide bounding box coordinates as percentages (0-100) of image dimensions. '.
-            'Return ONLY valid JSON: {"has_photo": boolean, "photo_bounds": {"x": number, "y": number, '.
-            '"width": number, "height": number} or null}. '.
-            'Coordinates are percentages: x=left edge, y=top edge, width=box width, height=box height. '.
-            'Return ONLY the JSON, no other text.';
-
-        $result = $this->callApi($model, $prompt, $imageBase64);
-
-        $photoData = $this->parsePhotoDetection($result['content']);
-
-        if ($photoData['has_photo'] && $photoData['photo_bounds']) {
-            $imageInfo = getimagesize($imagePath);
-            $normalizedBounds = $this->normalizeCoordinates(
-                $photoData['photo_bounds'],
-                $imageInfo[0],
-                $imageInfo[1]
-            );
-
-            $photoData['photo_bounds'] = $normalizedBounds;
-        }
-
-        return $photoData;
-    }
-
-    /**
-     * Extract portrait from image using bounding box
-     *
-     * @param  string  $imagePath  Source image path
-     * @param  array  $bounds  Bounding box {x, y, width, height} as percentages
-     * @param  string  $outputPath  Output portrait path
-     * @param  int  $maxSize  Maximum dimension in pixels (default: 400)
-     * @param  int  $quality  JPEG quality (default: 85)
-     * @return bool Success
-     */
-    public function extractPortrait(
-        string $imagePath,
-        array $bounds,
-        string $outputPath,
-        int $maxSize = 400,
-        int $quality = 85
-    ): bool {
-        if (! isset($bounds['x'], $bounds['y'], $bounds['width'], $bounds['height'])) {
-            return false;
-        }
-
-        try {
-            $imagick = new \Imagick($imagePath);
-            $imageWidth = $imagick->getImageWidth();
-            $imageHeight = $imagick->getImageHeight();
-
-            // Convert percentages to pixels
-            $x = (int) ($imageWidth * $bounds['x'] / 100);
-            $y = (int) ($imageHeight * $bounds['y'] / 100);
-            $width = (int) ($imageWidth * $bounds['width'] / 100);
-            $height = (int) ($imageHeight * $bounds['height'] / 100);
-
-            // Crop the portrait
-            $imagick->cropImage($width, $height, $x, $y);
-            $imagick->setImagePage(0, 0, 0, 0);
-
-            // Resize to max dimensions
-            $imagick->scaleImage($maxSize, $maxSize, true);
-
-            // Save as JPEG
-            $imagick->setImageFormat('jpeg');
-            $imagick->setImageCompressionQuality($quality);
-            $imagick->writeImage($outputPath);
-            $imagick->clear();
-            $imagick->destroy();
-
-            return true;
-        } catch (\Exception $e) {
-            Log::error('Portrait extraction failed', [
-                'error' => $e->getMessage(),
-                'image' => $imagePath,
-                'bounds' => $bounds,
-            ]);
-
-            return false;
-        }
-    }
-
-    /**
-     * Complete extraction: text + photo in one call
-     *
-     * @param  string  $imagePath  Path to image file
-     * @param  string  $textModel  Model for text extraction
-     * @param  string  $photoModel  Model for photo detection
-     * @return array{text: array, photo: array, portrait_path: ?string}
-     *
-     * @throws \Exception
-     */
-    public function extractComplete(
-        string $imagePath,
-        string $textModel = self::MODEL_GEMINI_3_FLASH,
-        string $photoModel = self::MODEL_CLAUDE_SONNET_45
-    ): array {
-        // Extract text
-        $textData = $this->extractDeathNotice($imagePath, $textModel);
-
-        // Detect photo
-        $photoData = $this->detectPortrait($imagePath, $photoModel);
-
-        // Extract portrait if found
-        $portraitPath = null;
-        if ($photoData['has_photo'] && $photoData['photo_bounds']) {
-            $dir = dirname($imagePath);
-            $portraitPath = $dir.'/portrait_abacusai_'.uniqid().'.jpg';
-
-            if ($this->extractPortrait($imagePath, $photoData['photo_bounds'], $portraitPath)) {
-                Log::info('Portrait extracted via Abacus.AI', [
-                    'source' => $imagePath,
-                    'portrait' => $portraitPath,
-                    'model' => $photoModel,
-                ]);
-            } else {
-                $portraitPath = null;
-            }
-        }
-
-        return [
-            'text' => $textData,
-            'photo' => $photoData,
-            'portrait_path' => $portraitPath,
-        ];
-    }
-
-    /**
      * Call Abacus.AI API
      *
      * @param  string  $model  Model identifier
@@ -298,26 +157,6 @@ class AbacusAiVisionService
     }
 
     /**
-     * Parse photo detection response
-     */
-    private function parsePhotoDetection(string $content): array
-    {
-        // Remove markdown code blocks if present
-        $content = preg_replace('/```json\s*(.*?)\s*```/s', '$1', $content);
-
-        $data = json_decode($content, true);
-
-        if (! $data || ! isset($data['has_photo'])) {
-            throw new \Exception('Failed to parse photo detection response');
-        }
-
-        return [
-            'has_photo' => $data['has_photo'],
-            'photo_bounds' => $data['photo_bounds'] ?? null,
-        ];
-    }
-
-    /**
      * Clean full_name by removing Polish deceased prefix
      */
     private function cleanFullName(string $name): string
@@ -334,95 +173,6 @@ class AbacusAiVisionService
         }
 
         return trim($name);
-    }
-
-    /**
-     * Normalize coordinate system (pixels to percentages if needed)
-     *
-     * @param  array  $bounds  Bounding box coordinates
-     * @param  int  $imageWidth  Image width in pixels
-     * @param  int  $imageHeight  Image height in pixels
-     * @return array Normalized coordinates as percentages
-     */
-    private function normalizeCoordinates(array $bounds, int $imageWidth, int $imageHeight): array
-    {
-        if (! isset($bounds['x'], $bounds['y'], $bounds['width'], $bounds['height'])) {
-            return $bounds;
-        }
-
-        if ($bounds['x'] > 100 || $bounds['y'] > 100 || $bounds['width'] > 100 || $bounds['height'] > 100) {
-            Log::warning('Abacus.AI returned pixel coordinates, converting to percentages', [
-                'original' => $bounds,
-                'image_size' => "{$imageWidth}x{$imageHeight}",
-            ]);
-
-            return [
-                'x' => round(($bounds['x'] / $imageWidth) * 100, 2),
-                'y' => round(($bounds['y'] / $imageHeight) * 100, 2),
-                'width' => round(($bounds['width'] / $imageWidth) * 100, 2),
-                'height' => round(($bounds['height'] / $imageHeight) * 100, 2),
-            ];
-        }
-
-        return $bounds;
-    }
-
-    /**
-     * Validate portrait extraction quality
-     *
-     * @param  string  $portraitPath  Path to extracted portrait
-     * @return array{valid: bool, reason?: string, size?: int, dimensions?: string, quality?: string}
-     */
-    public function validatePortraitQuality(string $portraitPath): array
-    {
-        if (! file_exists($portraitPath)) {
-            return ['valid' => false, 'reason' => 'File not found'];
-        }
-
-        $size = filesize($portraitPath);
-        $imageInfo = getimagesize($portraitPath);
-
-        if (! $imageInfo) {
-            return ['valid' => false, 'reason' => 'Invalid image'];
-        }
-
-        [$width, $height] = $imageInfo;
-
-        if ($size < 5000) {
-            return [
-                'valid' => false,
-                'reason' => 'File too small (< 5 KB)',
-                'size' => $size,
-                'dimensions' => "{$width}x{$height}",
-            ];
-        }
-
-        if ($width < 100 || $height < 100) {
-            return [
-                'valid' => false,
-                'reason' => 'Dimensions too small',
-                'size' => $size,
-                'dimensions' => "{$width}x{$height}",
-            ];
-        }
-
-        if ($width === $height && $size < 10000) {
-            return [
-                'valid' => false,
-                'reason' => 'Square crop (likely wrong area)',
-                'size' => $size,
-                'dimensions' => "{$width}x{$height}",
-            ];
-        }
-
-        $quality = $size > 30000 ? 'excellent' : ($size > 15000 ? 'good' : 'acceptable');
-
-        return [
-            'valid' => true,
-            'size' => $size,
-            'dimensions' => "{$width}x{$height}",
-            'quality' => $quality,
-        ];
     }
 
     /**
@@ -443,7 +193,7 @@ class AbacusAiVisionService
                 'speed' => 'medium',
                 'quality' => 'highest',
                 'usage' => 'limited',
-                'recommended_for' => ['photo_detection', 'complex_documents'],
+                'recommended_for' => ['complex_documents'],
             ],
             self::MODEL_GEMINI_25_PRO => [
                 'name' => 'Gemini 2.5 Pro',

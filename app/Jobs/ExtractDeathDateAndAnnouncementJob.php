@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Models\DeathNotice;
-use App\Services\PortraitExtractionService;
 use App\Services\VisionOcrService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -46,18 +45,17 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
 
     public const FIELD_ANNOUNCEMENT_TEXT = 'announcement_text';
 
-    public const FIELD_PORTRAIT = 'portrait';
-
     public const FIELD_ALL = 'all';
 
     /**
      * Create a new job instance.
      *
-     * @param  array<string>  $fieldsToExtract  Fields to extract: 'all', 'full_name', 'opening_quote', 'death_date', 'announcement_text', 'portrait'
+     * @param  string|null  $tempImagePath  Optional temp image path for PDF-based notices (overrides model's image_path)
+     * @param  array<string>  $fieldsToExtract  Fields to extract: 'all', 'full_name', 'opening_quote', 'death_date', 'announcement_text'
      */
     public function __construct(
         public DeathNotice $deathNotice,
-        public string $imagePath,
+        public ?string $tempImagePath = null,
         public array $fieldsToExtract = [self::FIELD_ALL]
     ) {
         $this->onQueue('extraction');
@@ -87,23 +85,38 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
      */
     public function handle(VisionOcrService $visionOcrService): void
     {
+        // Priority: 1. temp path (PDF-based), 2. MediaLibrary original_image (PS BK)
+        $imagePath = $this->tempImagePath;
+        $isTemporary = $this->tempImagePath !== null;
+
+        if (! $imagePath) {
+            // Try original_image from MediaLibrary (PS BK records)
+            $media = $this->deathNotice->getFirstMedia('original_image');
+            $imagePath = $media?->getPath();
+        }
+
         Log::info("Starting extraction for DeathNotice {$this->deathNotice->hash}", [
             'id' => $this->deathNotice->id,
             'hash' => $this->deathNotice->hash,
             'source' => $this->deathNotice->source,
+            'image_path' => $imagePath,
             'fields_to_extract' => $this->fieldsToExtract,
             'attempt' => $this->attempts(),
         ]);
 
         try {
-            if (! file_exists($this->imagePath)) {
-                Log::error("Image file not found for extraction: {$this->imagePath}");
-                throw new \Exception("Image file not found: {$this->imagePath}");
+            if (! $imagePath || ! file_exists($imagePath)) {
+                Log::error('Image file not found for extraction', [
+                    'image_path' => $imagePath,
+                    'temp_path' => $this->tempImagePath,
+                    'has_original_image_media' => $this->deathNotice->getFirstMedia('original_image') !== null,
+                ]);
+                throw new \Exception("Image file not found: {$imagePath}");
             }
 
             // Extract text data with known name context
             $ocrData = $visionOcrService->extractTextFromImage(
-                $this->imagePath,
+                $imagePath,
                 $this->deathNotice->full_name
             );
 
@@ -126,11 +139,6 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                 $updateData['announcement_text'] = $ocrData['announcement_text'] ?? null;
             }
 
-            // Always update has_photo if any text field is being extracted
-            if ($this->shouldExtractTextFields() && isset($ocrData['has_photo'])) {
-                $updateData['has_photo'] = (bool) $ocrData['has_photo'];
-            }
-
             if (! empty($updateData)) {
                 $this->deathNotice->update($updateData);
 
@@ -138,7 +146,6 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                     'fields_extracted' => array_keys($updateData),
                     'death_date' => $ocrData['death_date'] ?? null,
                     'announcement_text' => isset($ocrData['announcement_text']) ? substr($ocrData['announcement_text'], 0, 100).'...' : null,
-                    'has_photo' => $ocrData['has_photo'] ?? false,
                     'full_name' => $ocrData['full_name'] ?? null,
                     'opening_quote' => isset($ocrData['opening_quote']) ? substr($ocrData['opening_quote'], 0, 50).'...' : null,
                 ]);
@@ -148,16 +155,10 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                 ]);
             }
 
-            // Extract portrait if requested and photo detected
-            $shouldExtractPortrait = $this->shouldExtractField(self::FIELD_PORTRAIT);
-            if ($shouldExtractPortrait && config('services.parte.extract_portraits', true) && ! empty($ocrData['has_photo']) && ! empty($ocrData['photo_bbox'])) {
-                $this->extractAndSavePortrait($ocrData['photo_bbox'], $ocrData['photo_description'] ?? null);
-            }
-
-            // Clean up temporary image file after successful extraction
-            if (file_exists($this->imagePath)) {
-                unlink($this->imagePath);
-                Log::debug("Cleaned up temporary image after extraction: {$this->imagePath}");
+            // Clean up temporary image file (only for PDF-based notices with temp paths)
+            if ($isTemporary && $imagePath && file_exists($imagePath)) {
+                unlink($imagePath);
+                Log::debug("Cleaned up temporary image after extraction: {$imagePath}");
             }
         } catch (\Exception $e) {
             Log::error("Extraction failed for DeathNotice {$this->deathNotice->hash}", [
@@ -167,11 +168,9 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
             ]);
 
             // Clean up temp file only if we've exhausted retries
-            if ($this->attempts() >= $this->tries) {
-                if (file_exists($this->imagePath)) {
-                    unlink($this->imagePath);
-                    Log::debug("Cleaned up temporary image after final failure: {$this->imagePath}");
-                }
+            if ($isTemporary && $this->attempts() >= $this->tries && $imagePath && file_exists($imagePath)) {
+                unlink($imagePath);
+                Log::debug("Cleaned up temporary image after final failure: {$imagePath}");
             }
 
             // Rethrow to trigger retry mechanism
@@ -180,70 +179,22 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
     }
 
     /**
-     * Extract and save portrait photograph from parte image.
-     */
-    private function extractAndSavePortrait(array $bbox, ?string $description): void
-    {
-        try {
-            // Check if portrait already exists
-            $existingPortrait = $this->deathNotice->getFirstMedia('portrait');
-
-            if ($existingPortrait) {
-                Log::info('Replacing existing portrait', [
-                    'notice_hash' => $this->deathNotice->hash,
-                    'old_portrait' => $existingPortrait->file_name,
-                ]);
-
-                // Delete old portrait (Spatie will handle this automatically with singleFile)
-                $existingPortrait->delete();
-            }
-
-            $portraitService = app(PortraitExtractionService::class);
-
-            // Extract portrait from parte image
-            $portraitPath = $portraitService->extractPortrait($this->imagePath, $bbox);
-
-            if ($portraitPath && file_exists($portraitPath)) {
-                // Save to media library
-                $this->deathNotice
-                    ->addMedia($portraitPath)
-                    ->withCustomProperties([
-                        'description' => $description,
-                        'extracted_at' => now()->toIso8601String(),
-                    ])
-                    ->toMediaCollection('portrait');
-
-                // Cleanup temp file
-                @unlink($portraitPath);
-
-                Log::info("Portrait extracted successfully for DeathNotice {$this->deathNotice->hash}", [
-                    'bbox' => $bbox,
-                    'description' => $description,
-                ]);
-            }
-        } catch (\Exception $e) {
-            // Don't fail the entire job if portrait extraction fails (non-critical)
-            Log::warning("Portrait extraction failed (non-critical) for DeathNotice {$this->deathNotice->hash}", [
-                'error' => $e->getMessage(),
-                'bbox' => $bbox,
-            ]);
-        }
-    }
-
-    /**
      * Handle a job failure.
      */
     public function failed(\Throwable $exception): void
     {
+        $media = $this->deathNotice->getFirstMedia('original_image');
+
         Log::error("ExtractDeathDateAndAnnouncementJob permanently failed for DeathNotice {$this->deathNotice->hash}", [
             'error' => $exception->getMessage(),
-            'trace' => $exception->getTraceAsString(),
+            'media_path' => $media?->getPath(),
+            'temp_image_path' => $this->tempImagePath,
         ]);
 
-        // Clean up temporary image file on final failure
-        if (file_exists($this->imagePath)) {
-            unlink($this->imagePath);
-            Log::debug("Cleaned up temporary image on job failure: {$this->imagePath}");
+        // Clean up temporary image file on final failure (only for PDF-based notices)
+        if ($this->tempImagePath && file_exists($this->tempImagePath)) {
+            unlink($this->tempImagePath);
+            Log::debug("Cleaned up temporary image on job failure: {$this->tempImagePath}");
         }
     }
 }

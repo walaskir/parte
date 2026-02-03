@@ -348,15 +348,16 @@ class DeathNoticeService
 
                 $imageContent = $response->body();
 
-                // Save temporary image for OCR processing via queue
+                // Save image to MediaLibrary for OCR processing
                 if ($notice) {
-                    $tempImagePath = Storage::disk('local')->path('temp/'.uniqid('ocr_image_').'.jpg');
-                    file_put_contents($tempImagePath, $imageContent);
+                    $imageSaved = $this->saveParteImage($notice, $imageContent, $imageUrl);
 
-                    // Dispatch ExtractImageParteJob for PS BK (name + funeral_date)
-                    \App\Jobs\ExtractImageParteJob::dispatch($notice, $tempImagePath);
+                    if ($imageSaved) {
+                        // Dispatch ExtractImageParteJob - will read from MediaLibrary
+                        \App\Jobs\ExtractImageParteJob::dispatch($notice);
 
-                    Log::info("Dispatched ExtractImageParteJob for PS BK notice {$notice->hash}");
+                        Log::info("Dispatched ExtractImageParteJob for PS BK notice {$notice->hash}");
+                    }
                 }
 
                 // Save to temp file for PDF conversion
@@ -389,5 +390,49 @@ class DeathNoticeService
         }
 
         return false;
+    }
+
+    /**
+     * Save parte image to MediaLibrary 'original_image' collection
+     */
+    private function saveParteImage(DeathNotice $notice, string $imageContent, string $imageUrl): bool
+    {
+        try {
+            // Determine file extension from URL
+            $extension = pathinfo(parse_url($imageUrl, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'png';
+            $extension = strtolower($extension);
+
+            if (! in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                $extension = 'png';
+            }
+
+            // Create temp file for MediaLibrary
+            $tempPath = storage_path('app/temp/parte_image_'.uniqid().'.'.$extension);
+            $tempDir = dirname($tempPath);
+
+            if (! file_exists($tempDir)) {
+                mkdir($tempDir, 0755, true);
+            }
+
+            file_put_contents($tempPath, $imageContent);
+
+            // Add to MediaLibrary 'original_image' collection
+            $notice->addMedia($tempPath)
+                ->usingFileName("{$notice->hash}.{$extension}")
+                ->toMediaCollection('original_image');
+
+            Log::info('Saved parte image via MediaLibrary', [
+                'hash' => $notice->hash,
+                'collection' => 'original_image',
+            ]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Failed to save parte image: {$e->getMessage()}", [
+                'hash' => $notice->hash,
+            ]);
+
+            return false;
+        }
     }
 }

@@ -43,8 +43,6 @@ return [
         // NEW configuration (required)
         'text_provider' => env('VISION_TEXT_PROVIDER'),
         'text_fallback' => env('VISION_TEXT_FALLBACK'),
-        'photo_provider' => env('VISION_PHOTO_PROVIDER'),
-        'photo_fallback' => env('VISION_PHOTO_FALLBACK'),
     ],
 
     'gemini' => [
@@ -78,7 +76,7 @@ return [
     ],
 
     'parte' => [
-        'extract_portraits' => env('EXTRACT_PORTRAITS', true),
+        //
     ],
 
 ];

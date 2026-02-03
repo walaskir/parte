@@ -16,14 +16,6 @@ class VisionOcrService
 
     private ?string $textFallbackModel;
 
-    private string $photoProvider;
-
-    private ?string $photoProviderModel;
-
-    private ?string $photoFallbackProvider;
-
-    private ?string $photoFallbackModel;
-
     private ?string $geminiApiKey;
 
     private ?string $zhipuaiApiKey;
@@ -44,12 +36,6 @@ class VisionOcrService
         [$this->textFallbackProvider, $this->textFallbackModel] = $this->parseProvider(
             config('services.vision.text_fallback') ?? ''
         );
-        [$this->photoProvider, $this->photoProviderModel] = $this->parseProvider(
-            config('services.vision.photo_provider')
-        );
-        [$this->photoFallbackProvider, $this->photoFallbackModel] = $this->parseProvider(
-            config('services.vision.photo_fallback') ?? ''
-        );
 
         // Load API keys
         $this->geminiApiKey = config('services.gemini.api_key');
@@ -68,11 +54,6 @@ class VisionOcrService
         if (! $this->isProviderConfigured($this->textProvider)) {
             throw new Exception("Text provider '{$this->textProvider}' is not configured. Please set the API key in .env file.");
         }
-
-        // Validate photo provider is configured
-        if (! $this->isProviderConfigured($this->photoProvider)) {
-            throw new Exception("Photo provider '{$this->photoProvider}' is not configured. Please set the API key in .env file.");
-        }
     }
 
     /**
@@ -89,8 +70,7 @@ class VisionOcrService
                 throw new Exception(
                     'BREAKING CHANGE: VISION_PROVIDER syntax deprecated. '.
                     'Update .env to use new format: '.
-                    'VISION_TEXT_PROVIDER=abacusai/gemini-3-flash '.
-                    'VISION_PHOTO_PROVIDER=abacusai/gemini-3-flash. '.
+                    'VISION_TEXT_PROVIDER=abacusai/gemini-3-flash. '.
                     'See .env.example for details. (Version 2.0)'
                 );
             }
@@ -105,14 +85,13 @@ class VisionOcrService
                 ]);
 
                 config(['services.vision.text_provider' => $oldProvider]);
-                config(['services.vision.photo_provider' => $oldProvider]);
             }
         }
 
         // Validate new syntax exists
-        if (! config('services.vision.text_provider') || ! config('services.vision.photo_provider')) {
+        if (! config('services.vision.text_provider')) {
             throw new Exception(
-                'VISION_TEXT_PROVIDER and VISION_PHOTO_PROVIDER required. '.
+                'VISION_TEXT_PROVIDER required. '.
                 'See .env.example for new configuration syntax.'
             );
         }
@@ -141,7 +120,7 @@ class VisionOcrService
     /**
      * Extract text data (name, dates, announcement, opening_quote) from image
      *
-     * @deprecated Use extractTextFromImage() or extractPhotoFromImage() instead
+     * @deprecated Use extractTextFromImage() instead
      */
     public function extractFromImage(string $imagePath, bool $extractDeathDate = false, ?string $knownName = null): ?array
     {
@@ -219,69 +198,6 @@ class VisionOcrService
     }
 
     /**
-     * Extract photo bounding box from image
-     */
-    public function extractPhotoFromImage(string $imagePath): ?array
-    {
-        try {
-            if (! file_exists($imagePath)) {
-                return ['has_photo' => false];
-            }
-
-            Log::info('VisionOcrService: Photo extraction starting', [
-                'photo_provider' => $this->photoProvider,
-                'photo_model' => $this->photoProviderModel,
-            ]);
-
-            // Try primary photo provider
-            $result = $this->extractPhotoWithProvider(
-                $this->photoProvider,
-                $this->photoProviderModel,
-                $imagePath
-            );
-
-            if ($result && ($result['has_photo'] ?? false)) {
-                Log::info('VisionOcrService: Photo extraction successful', [
-                    'provider' => $this->photoProvider,
-                ]);
-
-                return $result;
-            }
-
-            // Try fallback
-            if ($this->photoFallbackProvider && $this->isProviderConfigured($this->photoFallbackProvider)) {
-                Log::warning('VisionOcrService: Photo extraction fallback', [
-                    'fallback_provider' => $this->photoFallbackProvider,
-                ]);
-
-                $result = $this->extractPhotoWithProvider(
-                    $this->photoFallbackProvider,
-                    $this->photoFallbackModel,
-                    $imagePath
-                );
-
-                if ($result && ($result['has_photo'] ?? false)) {
-                    Log::info('VisionOcrService: Fallback photo extraction successful', [
-                        'provider' => $this->photoFallbackProvider,
-                    ]);
-
-                    return $result;
-                }
-            }
-
-            return ['has_photo' => false];
-
-        } catch (Exception $e) {
-            Log::error('VisionOcrService photo extraction failed', [
-                'error' => $e->getMessage(),
-                'image_path' => $imagePath,
-            ]);
-
-            return ['has_photo' => false];
-        }
-    }
-
-    /**
      * Extract text with specific provider
      */
     private function extractTextWithProvider(
@@ -295,23 +211,6 @@ class VisionOcrService
             'gemini' => $this->extractWithGemini($imagePath, $knownName),
             'zhipuai' => $this->extractWithZhipuAI($imagePath, $knownName),
             'anthropic' => $this->extractWithAnthropic($imagePath, $knownName),
-            default => throw new Exception("Unknown provider: {$provider}")
-        };
-    }
-
-    /**
-     * Extract photo with specific provider
-     */
-    private function extractPhotoWithProvider(
-        string $provider,
-        ?string $model,
-        string $imagePath
-    ): ?array {
-        return match ($provider) {
-            'abacusai' => $this->extractPhotoWithAbacusAI($imagePath, $model),
-            'gemini' => $this->extractPhotoOnlyWithGemini($imagePath),
-            'zhipuai' => $this->extractPhotoOnlyWithZhipuAI($imagePath),
-            'anthropic' => $this->extractPhotoOnlyWithAnthropic($imagePath),
             default => throw new Exception("Unknown provider: {$provider}")
         };
     }
@@ -336,49 +235,10 @@ class VisionOcrService
 
             $result = $service->extractDeathNotice($imagePath, $model);
 
-            // Add required fields for compatibility
-            $result['has_photo'] = false; // Handled separately
-
             // Apply post-processing and cleaning
             return $this->cleanExtractionResult($result, $knownName);
         } catch (Exception $e) {
             Log::error('Abacus.AI text extraction failed', [
-                'error' => $e->getMessage(),
-                'model' => $modelKey,
-            ]);
-
-            return null;
-        }
-    }
-
-    /**
-     * Extract photo using Abacus.AI API
-     */
-    private function extractPhotoWithAbacusAI(string $imagePath, ?string $modelKey): ?array
-    {
-        if (! $this->abacusAiApiKey) {
-            return null;
-        }
-
-        try {
-            $service = new AbacusAiVisionService($this->abacusAiApiKey);
-            $model = $this->getAbacusAiModel($modelKey);
-
-            $result = $service->detectPortrait($imagePath, $model);
-
-            // Convert photo_bounds to photo_bbox format for compatibility
-            if ($result['has_photo'] && isset($result['photo_bounds'])) {
-                $result['photo_bbox'] = [
-                    'x_percent' => $result['photo_bounds']['x'],
-                    'y_percent' => $result['photo_bounds']['y'],
-                    'width_percent' => $result['photo_bounds']['width'],
-                    'height_percent' => $result['photo_bounds']['height'],
-                ];
-            }
-
-            return $result;
-        } catch (Exception $e) {
-            Log::error('Abacus.AI photo extraction failed', [
                 'error' => $e->getMessage(),
                 'model' => $modelKey,
             ]);
@@ -725,223 +585,6 @@ class VisionOcrService
     }
 
     /**
-     * Get prompt focused solely on portrait photo detection.
-     */
-    private function getPhotoOnlyPrompt(): string
-    {
-        return "**TASK: Detect portrait photograph in Czech/Polish death notice (parte)**
-
-**YOUR ONLY JOB: Find the portrait photo (if present)**
-
-Portrait characteristics:
-• Formal photograph showing deceased person's face/head
-• Usually black & white or sepia-toned
-• Often has thin decorative border
-• Common positions:
-  - Top-right: X=65-95%, Y=5-20%
-  - Top-center: X=35-65%, Y=5-20%
-  - Top-left: X=5-30%, Y=5-20%
-• Typical size: 15-30% width, 15-35% height
-
-**DETECTION RULES:**
-1. HIGH SENSITIVITY: Prefer false positives over missing real photos
-2. Look for ANY rectangular region containing a human face/portrait
-3. IGNORE text, decorative elements, logos (unless they contain a portrait)
-4. If you see a face photograph, ALWAYS report it
-5. Bounding box: Measure from page top-left corner (0,0) to bottom-right (100,100)
-
-**RESPONSE FORMAT (JSON only, no explanation):**
-
-If photo found:
-{
-  \"has_photo\": true,
-  \"photo_bbox\": {
-    \"x_percent\": 76.5,
-    \"y_percent\": 8.2,
-    \"width_percent\": 18.3,
-    \"height_percent\": 32.1
-  },
-  \"photo_description\": \"elderly woman with glasses, formal portrait, black and white\"
-}
-
-If NO photo:
-{
-  \"has_photo\": false
-}
-
-**CRITICAL: Respond ONLY with valid JSON. No explanations, no markdown code blocks.**";
-    }
-
-    /**
-     * Photo-only extraction using Gemini API.
-     */
-    private function extractPhotoOnlyWithGemini(string $imagePath): ?array
-    {
-        if (! $this->geminiApiKey) {
-            return null;
-        }
-
-        try {
-            $mimeType = $this->getMimeType($imagePath);
-            $imageData = base64_encode(file_get_contents($imagePath));
-
-            $response = Http::timeout(90)
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                ])
-                ->post('https://generativelanguage.googleapis.com/v1beta/models/'.config('services.gemini.model', 'gemini-2.0-flash-exp').":generateContent?key={$this->geminiApiKey}", [
-                    'contents' => [
-                        [
-                            'parts' => [
-                                [
-                                    'text' => $this->getPhotoOnlyPrompt(),
-                                ],
-                                [
-                                    'inline_data' => [
-                                        'mime_type' => $mimeType,
-                                        'data' => $imageData,
-                                    ],
-                                ],
-                            ],
-                        ],
-                    ],
-                    'generationConfig' => [
-                        'temperature' => 0.5, // Higher sensitivity for photo detection
-                        'topK' => 40,
-                        'topP' => 0.95,
-                    ],
-                ]);
-
-            if (! $response->successful()) {
-                return null;
-            }
-
-            $data = $response->json();
-            $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-
-            $json = $this->extractJson($text);
-
-            return $json;
-
-        } catch (Exception $e) {
-            Log::error('Gemini photo-only extraction failed', ['error' => $e->getMessage()]);
-
-            return null;
-        }
-    }
-
-    /**
-     * Photo-only extraction using ZhipuAI API.
-     */
-    private function extractPhotoOnlyWithZhipuAI(string $imagePath): ?array
-    {
-        if (! $this->zhipuaiApiKey) {
-            return null;
-        }
-
-        try {
-            $imageData = base64_encode(file_get_contents($imagePath));
-            $mimeType = $this->getMimeType($imagePath);
-            $imageUrl = "data:{$mimeType};base64,{$imageData}";
-
-            $response = Http::timeout(90)
-                ->withHeaders([
-                    'Authorization' => "Bearer {$this->zhipuaiApiKey}",
-                    'Content-Type' => 'application/json',
-                ])
-                ->post('https://open.bigmodel.cn/api/paas/v4/chat/completions', [
-                    'model' => 'glm-4v-flash',
-                    'messages' => [
-                        [
-                            'role' => 'user',
-                            'content' => [
-                                ['type' => 'text', 'text' => $this->getPhotoOnlyPrompt()],
-                                ['type' => 'image_url', 'image_url' => ['url' => $imageUrl]],
-                            ],
-                        ],
-                    ],
-                ]);
-
-            if (! $response->successful()) {
-                return null;
-            }
-
-            $data = $response->json();
-            $text = $data['choices'][0]['message']['content'] ?? '';
-
-            $json = $this->extractJson($text);
-
-            return $json;
-
-        } catch (Exception $e) {
-            Log::error('ZhipuAI photo-only extraction failed', ['error' => $e->getMessage()]);
-
-            return null;
-        }
-    }
-
-    /**
-     * Photo-only extraction using Anthropic API.
-     */
-    private function extractPhotoOnlyWithAnthropic(string $imagePath): ?array
-    {
-        if (! $this->anthropicApiKey) {
-            return null;
-        }
-
-        try {
-            $mimeType = $this->getMimeType($imagePath);
-            $imageData = base64_encode(file_get_contents($imagePath));
-
-            $response = Http::timeout(90)
-                ->withHeaders([
-                    'x-api-key' => $this->anthropicApiKey,
-                    'anthropic-version' => '2023-06-01',
-                    'Content-Type' => 'application/json',
-                ])
-                ->post('https://api.anthropic.com/v1/messages', [
-                    'model' => config('services.anthropic.model', 'claude-3-5-sonnet-20241022'),
-                    'max_tokens' => 2048,
-                    'messages' => [
-                        [
-                            'role' => 'user',
-                            'content' => [
-                                [
-                                    'type' => 'image',
-                                    'source' => [
-                                        'type' => 'base64',
-                                        'media_type' => $mimeType,
-                                        'data' => $imageData,
-                                    ],
-                                ],
-                                [
-                                    'type' => 'text',
-                                    'text' => $this->getPhotoOnlyPrompt(),
-                                ],
-                            ],
-                        ],
-                    ],
-                ]);
-
-            if (! $response->successful()) {
-                return null;
-            }
-
-            $data = $response->json();
-            $text = $data['content'][0]['text'] ?? '';
-
-            $json = $this->extractJson($text);
-
-            return $json;
-
-        } catch (Exception $e) {
-            Log::error('Anthropic photo-only extraction failed', ['error' => $e->getMessage()]);
-
-            return null;
-        }
-    }
-
-    /**
      * Universal extraction prompt for all APIs
      */
     private function getExtractionPrompt(?string $knownName = null): string
@@ -955,36 +598,6 @@ If NO photo:
             : '';
 
         return "**DOCUMENT LANGUAGE: Czech or Polish**
-
-**CRITICAL PRIORITY #1 - PORTRAIT PHOTO DETECTION:**
-
-Death notices (parte) VERY COMMONLY include portrait photographs of the deceased person.
-
-Portrait photo characteristics in Czech/Polish death notices:
-• APPEARANCE: Formal portrait showing person's face/head
-• STYLE: Usually black & white or sepia-toned
-• FRAME: Often has thin black decorative border (1-3 pixels)
-• POSITION: Typically located at:
-  - Top-right corner (X: 65-95%, Y: 5-20%)
-  - Top-center (X: 35-65%, Y: 5-20%)
-  - Top-left corner (X: 5-30%, Y: 5-20%)
-• SIZE: Usually 15-30% of page width, 15-35% of page height
-• ASPECT RATIO: Portrait orientation (height ≥ width) or square
-• QUALITY: May be grainy/low-resolution (still detect it!)
-
-**YOUR TASK - DETECT WITH HIGH SENSITIVITY:**
-1. Look VERY CAREFULLY for ANY portrait photograph
-2. Even if photo quality is poor, bbox detection is uncertain, or image is small → STILL DETECT IT
-3. Set has_photo=true if you see ANYTHING resembling a formal portrait photo
-4. Provide best-estimate bbox even if edges are unclear
-5. Common mistake: Missing photos because they blend with decorative borders → CHECK CAREFULLY
-
-**EXAMPLES of valid photo regions:**
-• Right corner: {\"x_percent\": 70.5, \"y_percent\": 7.6, \"width_percent\": 22.1, \"height_percent\": 19.8}
-• Center top: {\"x_percent\": 40.0, \"y_percent\": 7.5, \"width_percent\": 17.5, \"height_percent\": 16.5}
-• Left corner: {\"x_percent\": 10.0, \"y_percent\": 8.0, \"width_percent\": 20.0, \"height_percent\": 25.0}
-
-**CRITICAL:** If uncertain, prefer FALSE POSITIVE (detect photo that might not exist) over FALSE NEGATIVE (miss existing photo).
 
 **CRITICAL - DIACRITICS PRESERVATION:**
 - ALWAYS preserve Czech diacritics: á č ď é ě í ň ó ř š ť ú ů ý ž (uppercase: Á Č Ď É Ě Í Ň Ó Ř Š Ť Ú Ů Ý Ž)
@@ -1001,15 +614,7 @@ Analyze this death notice (parte/obituary) image. Extract ALL available informat
   \"opening_quote\": \"Poetic/memorial quote at document start (or null if none)\",
   \"death_date\": \"Date of death in YYYY-MM-DD format (or null if not found)\",
   \"funeral_date\": \"Date of funeral ceremony in YYYY-MM-DD format (or null if not found)\",
-  \"announcement_text\": \"Complete announcement text including funeral details (or null if not extractable)\",
-  \"has_photo\": true,
-  \"photo_description\": \"Brief description of portrait (e.g., 'elderly woman, formal attire')\",
-  \"photo_bbox\": {
-    \"x_percent\": 15.5,
-    \"y_percent\": 10.0,
-    \"width_percent\": 25.0,
-    \"height_percent\": 35.0
-  }
+  \"announcement_text\": \"Complete announcement text including funeral details (or null if not extractable)\"
 }{$nameContext}
 
 CURRENT DATE CONTEXT: Today is {$currentDate} ({$currentMonth})
@@ -1246,28 +851,6 @@ WHY THESE SPECIAL CASES MATTER:
    - Return as continuous text with single spaces (collapse multiple spaces)
    - ALWAYS ensure the announcement ends with a period (.) - if missing, add it
 
-5. PHOTO DETECTION (EXECUTE PRIORITY #1 INSTRUCTIONS ABOVE):
-   - Apply HIGH-SENSITIVITY detection from PRIORITY #1 section above
-   - If portrait photo detected: Set \"has_photo\": true
-   - Provide photo_description: Brief description (e.g., \"elderly man, grey hair, formal attire\")
-   - Provide photo_bbox: Bounding box as PERCENTAGES (see examples in PRIORITY #1)
-   - INCLUDE bbox even if edges are uncertain (best estimate is acceptable)
-   - If absolutely NO photo visible after CAREFUL inspection: Set \"has_photo\": false, omit photo fields
-
-BOUNDING BOX FORMAT (percentages of total image size):
-- x_percent: Distance from LEFT edge (0-100%)
-- y_percent: Distance from TOP edge (0-100%)
-- width_percent: Photo width as % of total image width (typically 20-30%)
-- height_percent: Photo height as % of total image height (typically 25-40%)
-
-Example: Photo at top-left corner, 200px×250px in 800px×1000px image:
-{
-  \"x_percent\": 5.0,
-  \"y_percent\": 8.0,
-  \"width_percent\": 25.0,
-  \"height_percent\": 25.0
-}
-
 Languages: Czech or Polish
 
 ⚠️ FINAL VALIDATION CHECKLIST - VERIFY BEFORE RETURNING JSON:
@@ -1341,25 +924,6 @@ Return ONLY valid JSON, nothing else.";
                 ]);
             } elseif ($cleaned !== 'null') {
                 $result['announcement_text'] = $cleaned;
-            }
-        }
-        // Add photo detection fields
-        $result['has_photo'] = isset($json['has_photo']) ? (bool) $json['has_photo'] : false;
-        $result['photo_description'] = $json['photo_description'] ?? null;
-        $result['photo_bbox'] = $json['photo_bbox'] ?? null;
-
-        // Validate photo_bbox if present
-        if ($result['photo_bbox']) {
-            $bbox = $result['photo_bbox'];
-            if (! isset($bbox['x_percent'], $bbox['y_percent'], $bbox['width_percent'], $bbox['height_percent'])) {
-                Log::warning('Photo bbox missing required fields', ['bbox' => $bbox]);
-                $result['photo_bbox'] = null;
-            } elseif ($bbox['x_percent'] < 0 || $bbox['x_percent'] > 100 ||
-                      $bbox['y_percent'] < 0 || $bbox['y_percent'] > 100 ||
-                      $bbox['width_percent'] < 5 || $bbox['width_percent'] > 100 ||
-                      $bbox['height_percent'] < 5 || $bbox['height_percent'] > 100) {
-                Log::warning('Photo bbox has invalid values', ['bbox' => $bbox]);
-                $result['photo_bbox'] = null;
             }
         }
 

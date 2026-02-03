@@ -20,7 +20,6 @@ class DeathNotice extends Model implements HasMedia
         'source',
         'source_url',
         'announcement_text',
-        'has_photo',
     ];
 
     /**
@@ -31,7 +30,6 @@ class DeathNotice extends Model implements HasMedia
         return [
             'funeral_date' => 'date',
             'death_date' => 'date',
-            'has_photo' => 'boolean',
         ];
     }
 
@@ -42,10 +40,10 @@ class DeathNotice extends Model implements HasMedia
             ->singleFile()
             ->acceptsMimeTypes(['application/pdf']);
 
-        $this->addMediaCollection('portrait')
+        $this->addMediaCollection('original_image')
             ->useDisk('parte')
             ->singleFile()
-            ->acceptsMimeTypes(['image/jpeg', 'image/png']);
+            ->acceptsMimeTypes(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
     }
 
     public function getFullNameAttribute(): ?string

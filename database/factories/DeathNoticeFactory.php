@@ -29,7 +29,6 @@ class DeathNoticeFactory extends Factory
             'source' => fake()->randomElement(['PSBK', 'PS Hajdukova', 'Sadovy Jan']),
             'source_url' => $sourceUrl,
             'announcement_text' => fake()->paragraph(3),
-            'has_photo' => fake()->boolean(),
         ];
     }
 
