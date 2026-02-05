@@ -261,6 +261,52 @@ php artisan queue:failed
 php artisan queue:retry all
 ```
 
+## Admin Panel (FilamentPHP)
+
+Aplikace obsahuje admin panel pro správu a úpravu záznamů parte.
+
+### Přístup
+
+- **URL:** `/admin`
+- **Přístup:** Pouze uživatelé s emailem v `FILAMENT_ADMIN_EMAILS`
+
+### Funkce
+
+- **Seznam parte:** Tabulka se sloupci PDF náhled, jméno (searchable), datum úmrtí, datum pohřbu, zdroj
+- **PDF náhledy:** Vyžaduje `spatie/pdf-to-image` (již nainstalováno)
+- **Filtry:** Pohřební služba (select), datum úmrtí (rozsah), datum pohřbu (rozsah)
+- **Editace:** Úprava textových polí (jméno, data, oznámení, citát)
+- **Statistiky:** Dashboard widgety s počty (celkem, měsíčně, ročně) + breakdown per zdroj
+- **Omezení:** Nelze vytvářet ani mazat záznamy (pouze view/edit)
+
+### Konfigurace
+
+```env
+# Čárkou oddělený seznam emailů s přístupem do admin panelu
+FILAMENT_ADMIN_EMAILS=robert@walaski.cz,admin@example.com
+
+# Výchozí heslo pro seeded admin uživatele (prázdné = náhodné)
+ADMIN_DEFAULT_PASSWORD=
+```
+
+### Vytvoření admin uživatele
+
+```bash
+php artisan db:seed --class=AdminUserSeeder
+```
+
+Seeder vytvoří uživatele s emailem z `FILAMENT_ADMIN_EMAILS`. Pokud není nastaveno `ADMIN_DEFAULT_PASSWORD`, vygeneruje se náhodné heslo a zobrazí se v konzoli.
+
+### Regenerace PDF náhledů
+
+Po přidání nové media konverze nebo při chybějících náhledech:
+
+```bash
+php artisan media-library:regenerate --force
+```
+
+---
+
 ## Technologie
 
 - **Laravel 12** - PHP framework

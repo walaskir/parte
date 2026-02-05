@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class DeathNotice extends Model implements HasMedia
 {
@@ -46,8 +47,12 @@ class DeathNotice extends Model implements HasMedia
             ->acceptsMimeTypes(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
     }
 
-    public function getFullNameAttribute(): ?string
+    public function registerMediaConversions(?Media $media = null): void
     {
-        return $this->attributes['full_name'] ?? null;
+        $this->addMediaConversion('thumb')
+            ->width(200)
+            ->height(283)
+            ->sharpen(10)
+            ->nonQueued();
     }
 }

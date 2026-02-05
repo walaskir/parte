@@ -3,7 +3,9 @@
 namespace App\Jobs;
 
 use App\Models\DeathNotice;
+use App\Models\User;
 use App\Services\VisionOcrService;
+use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -85,7 +87,7 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
      */
     public function handle(VisionOcrService $visionOcrService): void
     {
-        // Priority: 1. temp path (PDF-based), 2. MediaLibrary original_image (PS BK)
+        // Priority: 1. temp path (pre-converted), 2. MediaLibrary original_image, 3. Convert PDF
         $imagePath = $this->tempImagePath;
         $isTemporary = $this->tempImagePath !== null;
 
@@ -93,6 +95,23 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
             // Try original_image from MediaLibrary (PS BK records)
             $media = $this->deathNotice->getFirstMedia('original_image');
             $imagePath = $media?->getPath();
+        }
+
+        // If still no image, try to convert PDF
+        if (! $imagePath || ! file_exists($imagePath)) {
+            $pdfMedia = $this->deathNotice->getFirstMedia('pdf');
+
+            Log::info('Checking for PDF media to convert', [
+                'hash' => $this->deathNotice->hash,
+                'has_pdf_media' => $pdfMedia !== null,
+                'pdf_path' => $pdfMedia?->getPath(),
+                'pdf_exists' => $pdfMedia ? file_exists($pdfMedia->getPath()) : false,
+            ]);
+
+            if ($pdfMedia && file_exists($pdfMedia->getPath())) {
+                $imagePath = $this->convertPdfToImage($pdfMedia->getPath());
+                $isTemporary = true;
+            }
         }
 
         Log::info("Starting extraction for DeathNotice {$this->deathNotice->hash}", [
@@ -110,8 +129,9 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                     'image_path' => $imagePath,
                     'temp_path' => $this->tempImagePath,
                     'has_original_image_media' => $this->deathNotice->getFirstMedia('original_image') !== null,
+                    'has_pdf_media' => $this->deathNotice->getFirstMedia('pdf') !== null,
                 ]);
-                throw new \Exception("Image file not found: {$imagePath}");
+                throw new \Exception('Parte nemá ani obrázek ani PDF, nebo se nepodařilo konvertovat PDF.');
             }
 
             // Extract text data with known name context
@@ -149,6 +169,13 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
                     'full_name' => $ocrData['full_name'] ?? null,
                     'opening_quote' => isset($ocrData['opening_quote']) ? substr($ocrData['opening_quote'], 0, 50).'...' : null,
                 ]);
+
+                // Send success notification to all admin users
+                $this->notifyAdmins(
+                    'Extrakce dokončena',
+                    "Parte: {$this->deathNotice->full_name}\nPole: ".implode(', ', array_keys($updateData)),
+                    'success'
+                );
             } else {
                 Log::warning("No fields to update for DeathNotice {$this->deathNotice->hash}", [
                     'attempt' => $this->attempts(),
@@ -191,10 +218,84 @@ class ExtractDeathDateAndAnnouncementJob implements ShouldQueue
             'temp_image_path' => $this->tempImagePath,
         ]);
 
+        // Send failure notification to all admin users
+        $this->notifyAdmins(
+            'Chyba extrakce',
+            "Parte: {$this->deathNotice->full_name}\nChyba: {$exception->getMessage()}",
+            'danger'
+        );
+
         // Clean up temporary image file on final failure (only for PDF-based notices)
         if ($this->tempImagePath && file_exists($this->tempImagePath)) {
             unlink($this->tempImagePath);
             Log::debug("Cleaned up temporary image on job failure: {$this->tempImagePath}");
+        }
+    }
+
+    /**
+     * Send database notification to all admin users.
+     */
+    private function notifyAdmins(string $title, string $body, string $color = 'info'): void
+    {
+        $admins = User::all();
+
+        foreach ($admins as $admin) {
+            Notification::make()
+                ->title($title)
+                ->body($body)
+                ->color($color)
+                ->sendToDatabase($admin);
+        }
+    }
+
+    /**
+     * Convert PDF to image using Imagick.
+     *
+     * @throws \Exception When PDF conversion fails
+     */
+    private function convertPdfToImage(string $pdfPath): string
+    {
+        $tempImagePath = storage_path('app/temp/extract_'.uniqid().'.jpg');
+        $tempDir = dirname($tempImagePath);
+
+        if (! file_exists($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        Log::info('Starting PDF to image conversion', [
+            'pdf_path' => $pdfPath,
+            'temp_image_path' => $tempImagePath,
+            'hash' => $this->deathNotice->hash,
+        ]);
+
+        try {
+            $imagick = new \Imagick;
+            $imagick->setResolution(300, 300);
+            $imagick->readImage($pdfPath.'[0]');
+            $imagick->setImageFormat('jpeg');
+            $imagick->setImageCompressionQuality(90);
+            $imagick->writeImage($tempImagePath);
+            $imagick->clear();
+            $imagick->destroy();
+
+            if (! file_exists($tempImagePath)) {
+                throw new \Exception("Konverze PDF selhala - výstupní soubor nebyl vytvořen: {$tempImagePath}");
+            }
+
+            Log::info('PDF to image conversion successful', [
+                'temp_image_path' => $tempImagePath,
+                'hash' => $this->deathNotice->hash,
+            ]);
+
+            return $tempImagePath;
+        } catch (\ImagickException $e) {
+            Log::error('Imagick failed to convert PDF to image', [
+                'error' => $e->getMessage(),
+                'pdf_path' => $pdfPath,
+                'hash' => $this->deathNotice->hash,
+            ]);
+
+            throw new \Exception("Selhala konverze PDF pomocí Imagick: {$e->getMessage()}", 0, $e);
         }
     }
 }

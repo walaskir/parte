@@ -15,7 +15,15 @@
             "Bash(git push:*)",
             "mcp__laravel-boost__read-log-entries",
             "mcp__laravel-boost__database-query",
-            "Bash(file:*)"
+            "Bash(file:*)",
+            "mcp__laravel-boost__get-absolute-url",
+            "Bash(xargs basename:*)",
+            "Bash(ls:*)",
+            "Bash(xargs:*)",
+            "Bash(done)",
+            "Bash(gs:*)",
+            "Bash(convert:*)",
+            "Bash(php -l:*)"
         ]
     },
     "enableAllProjectMcpServers": true,
