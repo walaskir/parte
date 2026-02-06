@@ -311,7 +311,7 @@ protected function isAccessible(User $user, ?string $path = null): bool
   it('returns all', function () {
   $response = $this->postJson('/api/docs', []);
 
-                                                                    $response->assertSuccessful();
+                                                                      $response->assertSuccessful();
 
     });
     </code-snippet>
